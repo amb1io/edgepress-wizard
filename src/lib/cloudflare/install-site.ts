@@ -9,6 +9,12 @@ import {
 } from "./provision-resources";
 import { setupWorkerGitHubBuilds } from "./setup-worker-builds";
 import { buildInstallSummary, type ResourceSummaryItem } from "./resource-summary";
+import { setBetterAuthSecret } from "./worker-secrets";
+import {
+	enableWorkerSubdomain,
+	getWorkersSubdomain,
+} from "./workers-subdomain";
+import { buildWranglerConfigForSite } from "./wrangler-config";
 import { buildResourcePlan } from "../wizard/resources";
 import type { WizardSetupConfig } from "../wizard/session";
 
@@ -24,6 +30,14 @@ export type InstallSiteResult = {
 		kv: { name: string; id: string; created: boolean };
 		r2: { name: string; created: boolean };
 		worker: { name: string; tag?: string; created: boolean };
+	};
+	wrangler?: {
+		workerName: string;
+		betterAuthUrl: string;
+		trustedOrigins: string;
+		workersDevUrl: string;
+		customDomainUrl?: string;
+		secretConfigured: boolean;
 	};
 	builds?: Awaited<ReturnType<typeof setupWorkerGitHubBuilds>>;
 	summary?: ResourceSummaryItem[];
@@ -49,7 +63,10 @@ export async function installEdgePressSite(input: {
 }): Promise<InstallSiteResult> {
 	const startedAt = new Date().toISOString();
 	const steps: string[] = [];
-	const resourcePlan = buildResourcePlan(input.config.sitePrefix);
+	const resourcePlan = buildResourcePlan(
+		input.config.sitePrefix,
+		input.config.siteName,
+	);
 	const d1 = resourcePlan.find((item) => item.type === "d1");
 	const kv = resourcePlan.find((item) => item.type === "kv");
 	const r2 = resourcePlan.find((item) => item.type === "r2");
@@ -116,12 +133,42 @@ export async function installEdgePressSite(input: {
 			};
 		}
 
+		steps.push("resolve_workers_subdomain");
+		const workersSubdomain = await getWorkersSubdomain(input.token, accountId);
+
+		steps.push("build_wrangler_config");
+		const wranglerConfig = buildWranglerConfigForSite({
+			config: input.config,
+			bindings: {
+				d1: created.d1,
+				kv: created.kv,
+				r2: created.r2,
+			},
+			workersSubdomain,
+		});
+
+		steps.push("set_better_auth_secret");
+		await setBetterAuthSecret({
+			token: input.token,
+			accountId,
+			scriptName: worker.name,
+		});
+
+		steps.push("enable_worker_subdomain");
+		await enableWorkerSubdomain({
+			token: input.token,
+			accountId,
+			scriptName: worker.name,
+		});
+
 		steps.push("setup_github_builds");
 		const builds = await setupWorkerGitHubBuilds({
 			token: input.token,
 			accountId,
 			workerTag: workerUpload.tag,
 			repo: githubRepo,
+			buildCommand: wranglerConfig.buildCommand,
+			deployCommand: wranglerConfig.deployCommand,
 		});
 
 		steps.push("install_completed");
@@ -141,6 +188,15 @@ export async function installEdgePressSite(input: {
 			builds,
 		});
 
+		const wrangler = {
+			workerName: wranglerConfig.workerName,
+			betterAuthUrl: wranglerConfig.auth.betterAuthUrl,
+			trustedOrigins: wranglerConfig.auth.trustedOrigins,
+			workersDevUrl: wranglerConfig.auth.workersDevUrl,
+			customDomainUrl: wranglerConfig.auth.customDomainUrl,
+			secretConfigured: true,
+		};
+
 		return {
 			success: true,
 			accountId,
@@ -153,12 +209,15 @@ export async function installEdgePressSite(input: {
 					created: workerUpload.created,
 				},
 			},
+			wrangler,
 			builds,
 			summary,
 			debug: createDebug(startedAt, steps, {
 				accountId,
 				githubRepo,
 				summary,
+				wrangler,
+				wranglerToml: wranglerConfig.wranglerToml,
 			}),
 		};
 	} catch (error) {
@@ -217,6 +276,15 @@ function mapCloudflareErrorCode(error: CloudflareApiError): string {
 	}
 	if (error.step.includes("build_trigger") || error.step.includes("build_tokens")) {
 		return "install_build_setup_failed";
+	}
+	if (error.step.includes("put_worker_secret")) {
+		return "install_secret_failed";
+	}
+	if (
+		error.step.includes("workers_subdomain") ||
+		error.step.includes("worker_subdomain")
+	) {
+		return "install_subdomain_failed";
 	}
 	return "install_failed";
 }

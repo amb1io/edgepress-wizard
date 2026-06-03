@@ -8,7 +8,10 @@ export async function evaluateEdgePressResources(input: {
 	token: string;
 	config: WizardSetupConfig;
 }) {
-	const resourcePlan = buildResourcePlan(input.config.sitePrefix);
+	const resourcePlan = buildResourcePlan(
+		input.config.sitePrefix,
+		input.config.siteName,
+	);
 	const d1 = resourcePlan.find((item) => item.type === "d1");
 	const kv = resourcePlan.find((item) => item.type === "kv");
 	const r2 = resourcePlan.find((item) => item.type === "r2");

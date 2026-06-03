@@ -181,6 +181,7 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 	};
 
 	type ResourceSummaryRow = {
+		type?: string;
 		label: string;
 		name: string;
 		binding?: string;
@@ -349,16 +350,54 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 		if (!installResultPanel || !installResultList) return;
 
 		const summary = result.summary as ResourceSummaryRow[] | undefined;
+		const wrangler = result.wrangler as
+			| {
+					betterAuthUrl?: string;
+					trustedOrigins?: string;
+					workersDevUrl?: string;
+					secretConfigured?: boolean;
+			  }
+			| undefined;
 
-		if (summary?.length) {
-			installResultList.innerHTML = summary
+		const rows: ResourceSummaryRow[] = summary ? [...summary] : [];
+
+		if (wrangler?.betterAuthUrl) {
+			rows.push({
+				label: "Better Auth URL",
+				name: wrangler.betterAuthUrl,
+				status: "updated",
+				statusLabel: "Configured",
+				url: wrangler.betterAuthUrl,
+			});
+		}
+		if (wrangler?.workersDevUrl && wrangler.workersDevUrl !== wrangler.betterAuthUrl) {
+			rows.push({
+				label: "Workers.dev URL",
+				name: wrangler.workersDevUrl,
+				status: "updated",
+				statusLabel: "Enabled",
+				url: wrangler.workersDevUrl,
+			});
+		}
+		if (wrangler?.secretConfigured) {
+			rows.push({
+				label: "BETTER_AUTH_SECRET",
+				name: "Generated and stored as Worker secret",
+				status: "created",
+				statusLabel: "Secret set",
+				url: rows.find((item) => item.type === "worker" || item.label === "Worker")?.url ?? "",
+			});
+		}
+
+		if (rows.length) {
+			installResultList.innerHTML = rows
 				.map(
 					(item) => `
 					<tr>
 						<td>${escapeHtml(item.label)}</td>
 						<td class="font-mono text-xs">${escapeHtml(item.name)}</td>
 						<td>${resultBadge(item.status, item.statusLabel)}</td>
-						<td>${cloudflareLink(item.url, "Abrir no dashboard")}</td>
+						<td>${item.url ? cloudflareLink(item.url, item.label.includes("URL") ? "Abrir" : "Abrir no dashboard") : "—"}</td>
 					</tr>
 				`,
 				)
@@ -540,7 +579,7 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 			wizardConfig = JSON.parse(savedConfig) as WizardSetupConfig;
 			const sitePrefix =
 				wizardConfig.sitePrefix || deriveSitePrefix(wizardConfig.siteName);
-			const resources = buildResourcePlan(sitePrefix);
+			const resources = buildResourcePlan(sitePrefix, wizardConfig.siteName);
 
 			if (overviewSiteName) overviewSiteName.textContent = wizardConfig.siteName;
 			if (overviewSitePrefix) overviewSitePrefix.textContent = sitePrefix;

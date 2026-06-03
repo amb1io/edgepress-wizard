@@ -75,13 +75,24 @@ async function createProductionTrigger(input: {
 	repoConnectionUuid: string;
 	buildTokenUuid: string;
 	branch: string;
+	buildCommand: string;
+	deployCommand: string;
 }): Promise<string> {
 	const existing = await findExistingTrigger(
 		input.token,
 		input.accountId,
 		input.workerTag,
 	);
-	if (existing?.trigger_uuid) return existing.trigger_uuid;
+	if (existing?.trigger_uuid) {
+		await updateBuildTrigger({
+			token: input.token,
+			accountId: input.accountId,
+			triggerUuid: existing.trigger_uuid,
+			buildCommand: input.buildCommand,
+			deployCommand: input.deployCommand,
+		});
+		return existing.trigger_uuid;
+	}
 
 	const trigger = await cloudflareRequest<BuildTrigger>(
 		input.token,
@@ -94,8 +105,8 @@ async function createProductionTrigger(input: {
 				repo_connection_uuid: input.repoConnectionUuid,
 				build_token_uuid: input.buildTokenUuid,
 				trigger_name: "EdgePress production",
-				build_command: EDGPRESS_GITHUB.buildCommand,
-				deploy_command: EDGPRESS_GITHUB.deployCommand,
+				build_command: input.buildCommand,
+				deploy_command: input.deployCommand,
 				root_directory: "/",
 				branch_includes: [input.branch],
 				branch_excludes: [],
@@ -110,6 +121,27 @@ async function createProductionTrigger(input: {
 	}
 
 	return trigger.trigger_uuid;
+}
+
+async function updateBuildTrigger(input: {
+	token: string;
+	accountId: string;
+	triggerUuid: string;
+	buildCommand: string;
+	deployCommand: string;
+}): Promise<void> {
+	await cloudflareRequest<BuildTrigger>(
+		input.token,
+		`/accounts/${input.accountId}/builds/triggers/${input.triggerUuid}`,
+		{
+			method: "PATCH",
+			step: "update_build_trigger",
+			body: JSON.stringify({
+				build_command: input.buildCommand,
+				deploy_command: input.deployCommand,
+			}),
+		},
+	);
 }
 
 async function triggerInitialBuild(input: {
@@ -134,6 +166,8 @@ export type WorkerBuildSetupResult = {
 	buildTokenUuid: string;
 	triggerUuid: string;
 	buildUuid?: string;
+	buildCommand: string;
+	deployCommand: string;
 	github: {
 		owner: string;
 		repo: string;
@@ -146,6 +180,8 @@ export async function setupWorkerGitHubBuilds(input: {
 	accountId: string;
 	workerTag: string;
 	repo: GitHubRepoInfo;
+	buildCommand: string;
+	deployCommand: string;
 }): Promise<WorkerBuildSetupResult> {
 	const branch = EDGPRESS_GITHUB.branch || input.repo.defaultBranch;
 	const buildTokenUuid = await getBuildTokenUuid(input.token, input.accountId);
@@ -161,6 +197,8 @@ export async function setupWorkerGitHubBuilds(input: {
 		repoConnectionUuid,
 		buildTokenUuid,
 		branch,
+		buildCommand: input.buildCommand,
+		deployCommand: input.deployCommand,
 	});
 	const build = await triggerInitialBuild({
 		token: input.token,
@@ -174,6 +212,8 @@ export async function setupWorkerGitHubBuilds(input: {
 		buildTokenUuid,
 		triggerUuid,
 		buildUuid: build.build_uuid,
+		buildCommand: input.buildCommand,
+		deployCommand: input.deployCommand,
 		github: {
 			owner: input.repo.ownerName,
 			repo: input.repo.repoName,

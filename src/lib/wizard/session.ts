@@ -36,6 +36,10 @@ export const WIZARD_ERROR_MESSAGES: Record<string, string> = {
 	install_github_error: "Erro ao obter dados do repositório GitHub oficial.",
 	install_worker_tag_missing:
 		"Worker criado, mas não foi possível obter a tag para configurar o build.",
+	install_secret_failed:
+		"Não foi possível configurar BETTER_AUTH_SECRET no Worker. Verifique a permissão Workers Scripts Edit.",
+	install_subdomain_failed:
+		"Não foi possível habilitar o subdomínio workers.dev. Verifique Account Settings Read e Workers Scripts Edit.",
 };
 
 export type WizardSetupConfig = {

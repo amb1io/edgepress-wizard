@@ -1,3 +1,5 @@
+import { deriveWorkerName } from "./site-slug";
+
 export function deriveSitePrefix(siteName: string): string {
 	const letters = siteName.toLowerCase().replace(/[^a-z]/g, "");
 	const prefix = letters.slice(0, 3);
@@ -20,8 +22,12 @@ export type WizardResourcePlan = {
 	binding?: string;
 };
 
-export function buildResourcePlan(prefix: string): WizardResourcePlan[] {
+export function buildResourcePlan(
+	prefix: string,
+	siteName: string,
+): WizardResourcePlan[] {
 	const normalizedPrefix = prefix.toLowerCase();
+	const workerName = deriveWorkerName(siteName);
 
 	return [
 		{
@@ -45,7 +51,7 @@ export function buildResourcePlan(prefix: string): WizardResourcePlan[] {
 		{
 			type: "worker",
 			label: "Worker",
-			name: `${normalizedPrefix}_egp_worker`,
+			name: workerName,
 		},
 	];
 }
