@@ -1,0 +1,151 @@
+---
+import SetupLayout from "../../layouts/SetupLayout.astro";
+import Notificacao from "../../components/Notificacao.astro";
+import { WIZARD_ERROR_MESSAGES } from "../../lib/wizard/session";
+
+const error = Astro.url.searchParams.get("error");
+const errorMessage = error
+	? (WIZARD_ERROR_MESSAGES[error] ?? "Erro ao validar o token do Cloudflare.")
+	: null;
+---
+
+<SetupLayout
+	currentStep={1}
+	description="Informe o token da API do Cloudflare para iniciar o deploy automático dos recursos."
+>
+	{
+		errorMessage && (
+			<Notificacao type="error" message={errorMessage} className="mb-4" />
+		)
+	}
+
+	<div id="step1-loading" class="hidden mb-4">
+		<Notificacao
+			type="info"
+			message="Validando token do Cloudflare..."
+			className="mb-0"
+		/>
+	</div>
+
+	<div id="setup-form-error" class="min-h-[1.5rem]" aria-live="polite"></div>
+
+	<form id="step1-form" class="space-y-4">
+		<div class="form-control w-full">
+			<label class="label" for="cf-token">
+				<span class="label-text">Token do Cloudflare</span>
+			</label>
+			<input
+				type="password"
+				id="cf-token"
+				name="cf-token"
+				placeholder="Cole seu token da API"
+				class="input input-bordered w-full"
+				required
+				autocomplete="off"
+			/>
+		</div>
+
+		<div class="form-control mt-6">
+			<button type="submit" id="step1-submit" class="btn btn-primary w-full">
+				Avançar
+			</button>
+		</div>
+	</form>
+</SetupLayout>
+
+<script>
+	import { WIZARD_STORAGE_KEYS } from "../../lib/wizard/session";
+
+	const form = document.getElementById("step1-form");
+	const submitButton = document.getElementById("step1-submit");
+	const tokenInput = document.getElementById("cf-token");
+	const loadingBox = document.getElementById("step1-loading");
+
+	function showLoading() {
+		loadingBox?.classList.remove("hidden");
+		submitButton?.setAttribute("disabled", "true");
+		tokenInput?.setAttribute("disabled", "true");
+	}
+
+	async function validatePendingToken() {
+		if (sessionStorage.getItem(WIZARD_STORAGE_KEYS.pending) !== "true") {
+			return;
+		}
+
+		const token = sessionStorage.getItem(WIZARD_STORAGE_KEYS.token);
+		if (!token) {
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.pending);
+			window.location.href = "/setup/1?error=missing_token";
+			return;
+		}
+
+		showLoading();
+
+		try {
+			const response = await fetch("/api/validate-token", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ token }),
+			});
+
+			const result = await response.json();
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.pending);
+
+			if (result.success) {
+				sessionStorage.setItem(WIZARD_STORAGE_KEYS.validated, "true");
+				window.location.href = "/setup/2";
+				return;
+			}
+
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.token);
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.validated);
+
+			console.error(
+				"[EdgePress Wizard] Falha na validação do token Cloudflare",
+				result.debug,
+			);
+
+			const errorCode = result.errorCode ?? "invalid_token";
+			window.location.href = `/setup/1?error=${encodeURIComponent(errorCode)}`;
+		} catch (error) {
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.pending);
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.token);
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.validated);
+
+			console.error(
+				"[EdgePress Wizard] Erro de rede ao validar token Cloudflare",
+				{
+					error:
+						error instanceof Error
+							? {
+									name: error.name,
+									message: error.message,
+									stack: error.stack,
+								}
+							: error,
+				},
+			);
+
+			window.location.href = "/setup/1?error=network_error";
+		}
+	}
+
+	form?.addEventListener("submit", (event) => {
+		event.preventDefault();
+
+		const token =
+			tokenInput instanceof HTMLInputElement ? tokenInput.value.trim() : "";
+
+		if (!token) {
+			window.location.href = "/setup/1?error=missing_token";
+			return;
+		}
+
+		sessionStorage.setItem(WIZARD_STORAGE_KEYS.token, token);
+		sessionStorage.setItem(WIZARD_STORAGE_KEYS.pending, "true");
+		sessionStorage.removeItem(WIZARD_STORAGE_KEYS.validated);
+		window.location.reload();
+	});
+
+	validatePendingToken();
+</script>
