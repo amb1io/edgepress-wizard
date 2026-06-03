@@ -1,0 +1,15 @@
+export const EDGEPRESS_WIZARD_OAUTH_SCOPES = [
+	"account:read",
+	"user:read",
+	"workers:write",
+	"workers_kv:write",
+	"workers_routes:write",
+	"workers_scripts:write",
+	"workers_tail:read",
+	"d1:write",
+	"pages:write",
+	"zone:read",
+	"ssl_certs:write",
+	"queues:write",
+	"secrets_store:write",
+] as const;
