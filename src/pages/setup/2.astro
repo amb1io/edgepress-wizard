@@ -1,0 +1,502 @@
+---
+import SetupLayout from "../../layouts/SetupLayout.astro";
+import Notificacao from "../../components/Notificacao.astro";
+import { WIZARD_ERROR_MESSAGES } from "../../lib/wizard/session";
+
+const error = Astro.url.searchParams.get("error");
+
+const errorMessage = error
+	? (WIZARD_ERROR_MESSAGES[error] ?? "Erro ao concluir a configuração.")
+	: null;
+---
+
+<SetupLayout
+	currentStep={2}
+	description="Crie o primeiro usuário (administrador) e defina os dados do site."
+>
+	{
+		errorMessage && (
+			<Notificacao type="error" message={errorMessage} className="mb-4" />
+		)
+	}
+
+	<div id="setup-form-error" class="min-h-[1.5rem]" aria-live="polite"></div>
+
+	<form id="step2-form" class="space-y-4">
+		<div class="form-control w-full">
+			<label class="label" for="name">
+				<span class="label-text">Nome do usuário</span>
+			</label>
+			<input
+				type="text"
+				id="name"
+				name="name"
+				placeholder="Seu nome"
+				class="input input-bordered w-full"
+				required
+				autocomplete="name"
+			/>
+		</div>
+
+		<div class="form-control w-full">
+			<label class="label" for="email">
+				<span class="label-text">Email</span>
+			</label>
+			<input
+				type="email"
+				id="email"
+				name="email"
+				placeholder="seu@email.com"
+				class="input input-bordered w-full"
+				required
+				autocomplete="email"
+			/>
+		</div>
+
+		<div class="form-control w-full">
+			<label class="label" for="password">
+				<span class="label-text">Senha</span>
+			</label>
+			<input
+				type="password"
+				id="password"
+				name="password"
+				placeholder="Mínimo 8 caracteres"
+				class="input input-bordered w-full"
+				required
+				minlength="8"
+				autocomplete="new-password"
+			/>
+		</div>
+
+		<div class="divider text-sm text-base-content/70">Dados do site</div>
+
+		<div class="form-control w-full">
+			<label class="label" for="site_name">
+				<span class="label-text">Nome do site</span>
+			</label>
+			<input
+				type="text"
+				id="site_name"
+				name="site_name"
+				placeholder="Meu site"
+				class="input input-bordered w-full"
+				value="demo site"
+			/>
+		</div>
+
+		<div class="form-control w-full">
+			<label class="label" for="site_description">
+				<span class="label-text">Descrição do site</span>
+			</label>
+			<input
+				type="text"
+				id="site_description"
+				name="site_description"
+				placeholder="Uma breve descrição"
+				class="input input-bordered w-full"
+				value="demo_description"
+			/>
+		</div>
+
+		<div class="form-control w-full">
+			<label class="label" for="site_prefix">
+				<span class="label-text">Prefixo do site</span>
+			</label>
+			<input
+				type="text"
+				id="site_prefix"
+				name="site_prefix"
+				placeholder="abc"
+				class="input input-bordered w-full font-mono"
+				maxlength="3"
+				pattern="[a-zA-Z]{3}"
+				value="dem"
+				required
+			/>
+			<label class="label">
+				<span class="label-text-alt text-base-content/60">
+					3 letras usadas nos nomes dos recursos (ex.: dem_egp_d1, bucket R2: dem-egp-r2)
+				</span>
+			</label>
+		</div>
+
+		<div class="divider text-sm text-base-content/70">Dados de dominio</div>
+
+		<div class="form-control">
+			<label class="label cursor-pointer justify-start gap-3">
+				<input
+					type="checkbox"
+					id="associate_domain"
+					name="associate_domain"
+					class="checkbox checkbox-primary"
+				/>
+				<span class="label-text">
+					Associar o projeto a um dominio ja cadastrado?
+				</span>
+			</label>
+		</div>
+
+		<div id="domain-fields" class="hidden space-y-3">
+			<div id="domain-loading" class="hidden">
+				<Notificacao
+					type="info"
+					message="Carregando domínios da sua conta Cloudflare..."
+					className="mb-0"
+				/>
+			</div>
+
+			<div id="domain-error" class="hidden">
+				<Notificacao type="error" message="" className="mb-0" />
+			</div>
+
+			<div id="domain-select-wrapper" class="form-control w-full hidden">
+				<label class="label" for="zone-dropdown">
+					<span class="label-text">Domínio</span>
+				</label>
+				<input type="hidden" id="zone_id" name="zone_id" value="" />
+				<input type="hidden" id="zone_name" name="zone_name" value="" />
+				<details class="dropdown w-full" id="zone-dropdown">
+					<summary
+						class="btn w-full justify-between font-normal input input-bordered h-12 min-h-12 bg-base-100 hover:bg-base-100"
+					>
+						<span id="zone-dropdown-label" class="truncate">
+							Selecione um domínio
+						</span>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							class="opacity-60 shrink-0"
+							aria-hidden="true"
+						>
+							<path d="m6 9 6 6 6-6"></path>
+						</svg>
+					</summary>
+					<ul
+						id="zone-dropdown-menu"
+						class="dropdown-content menu bg-base-100 rounded-box z-10 mt-1 w-full p-2 shadow-lg border border-base-300 max-h-60 overflow-y-auto"
+					>
+					</ul>
+				</details>
+			</div>
+		</div>
+
+		<div class="form-control mt-6">
+			<button type="submit" class="btn btn-primary w-full">
+				Concluir configuração
+			</button>
+		</div>
+	</form>
+</SetupLayout>
+
+<script>
+	import { deriveSitePrefix, isValidSitePrefix } from "../../lib/wizard/resources";
+	import {
+		WIZARD_STORAGE_KEYS,
+		type WizardSetupConfig,
+	} from "../../lib/wizard/session";
+
+	if (sessionStorage.getItem(WIZARD_STORAGE_KEYS.validated) !== "true") {
+		window.location.href = "/setup/1";
+	}
+
+	const form = document.getElementById("step2-form");
+	const siteNameInput = document.getElementById("site_name");
+	const sitePrefixInput = document.getElementById("site_prefix");
+	const associateDomainCheckbox = document.getElementById("associate_domain");
+	const domainFields = document.getElementById("domain-fields");
+	const domainLoading = document.getElementById("domain-loading");
+	const domainError = document.getElementById("domain-error");
+	const domainSelectWrapper = document.getElementById("domain-select-wrapper");
+	const zoneIdInput = document.getElementById("zone_id");
+	const zoneNameInput = document.getElementById("zone_name");
+	const zoneDropdown = document.getElementById("zone-dropdown");
+	const zoneDropdownLabel = document.getElementById("zone-dropdown-label");
+	const zoneDropdownMenu = document.getElementById("zone-dropdown-menu");
+
+	let domainsLoaded = false;
+	let prefixManuallyEdited = false;
+
+	function syncPrefixFromSiteName() {
+		if (
+			prefixManuallyEdited ||
+			!(siteNameInput instanceof HTMLInputElement) ||
+			!(sitePrefixInput instanceof HTMLInputElement)
+		) {
+			return;
+		}
+
+		sitePrefixInput.value = deriveSitePrefix(siteNameInput.value);
+	}
+
+	siteNameInput?.addEventListener("input", syncPrefixFromSiteName);
+
+	sitePrefixInput?.addEventListener("input", () => {
+		prefixManuallyEdited = true;
+		if (sitePrefixInput instanceof HTMLInputElement) {
+			sitePrefixInput.value = sitePrefixInput.value
+				.toLowerCase()
+				.replace(/[^a-z]/g, "")
+				.slice(0, 3);
+		}
+	});
+
+	function showDomainSection(show: boolean) {
+		domainFields?.classList.toggle("hidden", !show);
+	}
+
+	function showDomainLoading(show: boolean) {
+		domainLoading?.classList.toggle("hidden", !show);
+	}
+
+	function showDomainError(message: string | null) {
+		if (!domainError) return;
+		domainError.classList.toggle("hidden", !message);
+		const messageEl = domainError.querySelector(".text-sm");
+		if (messageEl && message) messageEl.textContent = message;
+	}
+
+	function showDomainSelect(show: boolean) {
+		domainSelectWrapper?.classList.toggle("hidden", !show);
+	}
+
+	function getZoneLabel(zone: { name: string; status: string }) {
+		return zone.status === "active" ? zone.name : `${zone.name} (${zone.status})`;
+	}
+
+	function setSelectedZone(zoneId: string, zoneName: string) {
+		if (zoneIdInput instanceof HTMLInputElement) zoneIdInput.value = zoneId;
+		if (zoneNameInput instanceof HTMLInputElement) {
+			zoneNameInput.value = zoneName;
+		}
+		if (zoneDropdownLabel) zoneDropdownLabel.textContent = zoneName || "Selecione um domínio";
+		if (zoneDropdown instanceof HTMLDetailsElement) zoneDropdown.open = false;
+	}
+
+	function clearSelectedZone() {
+		if (zoneIdInput instanceof HTMLInputElement) zoneIdInput.value = "";
+		if (zoneNameInput instanceof HTMLInputElement) zoneNameInput.value = "";
+		if (zoneDropdownLabel) zoneDropdownLabel.textContent = "Selecione um domínio";
+		if (zoneDropdown instanceof HTMLDetailsElement) zoneDropdown.open = false;
+	}
+
+	function populateDomainDropdown(
+		zones: Array<{ id: string; name: string; status: string }>,
+		selectedZoneId?: string,
+	) {
+		if (!zoneDropdownMenu) return;
+
+		zoneDropdownMenu.innerHTML = "";
+
+		for (const zone of zones) {
+			const label = getZoneLabel(zone);
+			const item = document.createElement("li");
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "w-full text-left";
+			button.textContent = label;
+			button.dataset.zoneId = zone.id;
+			button.dataset.zoneName = zone.name;
+			button.addEventListener("click", () => {
+				setSelectedZone(zone.id, zone.name);
+			});
+			item.appendChild(button);
+			zoneDropdownMenu.appendChild(item);
+		}
+
+		if (selectedZoneId) {
+			const selected = zones.find((zone) => zone.id === selectedZoneId);
+			if (selected) setSelectedZone(selected.id, selected.name);
+		} else {
+			clearSelectedZone();
+		}
+
+		showDomainSelect(zones.length > 0);
+	}
+
+	async function loadDomains(selectedZoneId?: string) {
+		const token = sessionStorage.getItem(WIZARD_STORAGE_KEYS.token);
+		if (!token) {
+			window.location.href = "/setup/1?error=missing_token";
+			return;
+		}
+
+		showDomainError(null);
+		showDomainSelect(false);
+		showDomainLoading(true);
+
+		try {
+			const response = await fetch("/api/cloudflare/zones", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ token }),
+			});
+
+			const result = await response.json();
+			showDomainLoading(false);
+
+			if (!result.success) {
+				console.error(
+					"[EdgePress Wizard] Falha ao carregar domínios Cloudflare",
+					result.debug,
+				);
+				showDomainError(
+					result.message ??
+						"Não foi possível carregar os domínios da conta Cloudflare.",
+				);
+				domainsLoaded = false;
+				return;
+			}
+
+			populateDomainDropdown(result.zones ?? [], selectedZoneId);
+			domainsLoaded = true;
+
+			if ((result.zones ?? []).length === 0) {
+				showDomainError(
+					"Nenhum domínio encontrado na conta vinculada a este token.",
+				);
+			}
+		} catch (error) {
+			showDomainLoading(false);
+			domainsLoaded = false;
+			console.error(
+				"[EdgePress Wizard] Erro de rede ao carregar domínios Cloudflare",
+				{
+					error:
+						error instanceof Error
+							? {
+									name: error.name,
+									message: error.message,
+									stack: error.stack,
+								}
+							: error,
+				},
+			);
+			showDomainError(
+				"Não foi possível conectar à API do Cloudflare. Tente novamente.",
+			);
+		}
+	}
+
+	associateDomainCheckbox?.addEventListener("change", () => {
+		const checked =
+			associateDomainCheckbox instanceof HTMLInputElement &&
+			associateDomainCheckbox.checked;
+
+		showDomainSection(checked);
+
+		if (!checked) {
+			showDomainError(null);
+			showDomainSelect(false);
+			showDomainLoading(false);
+			clearSelectedZone();
+			domainsLoaded = false;
+			return;
+		}
+
+		if (!domainsLoaded) {
+			void loadDomains();
+		} else {
+			showDomainSelect(true);
+		}
+	});
+
+	const savedConfig = sessionStorage.getItem(WIZARD_STORAGE_KEYS.config);
+
+	if (savedConfig) {
+		try {
+			const config = JSON.parse(savedConfig) as WizardSetupConfig;
+			const nameInput = document.getElementById("name");
+			const emailInput = document.getElementById("email");
+			const siteDescriptionInput = document.getElementById("site_description");
+			const sitePrefixField = document.getElementById("site_prefix");
+
+			if (nameInput instanceof HTMLInputElement) nameInput.value = config.name;
+			if (emailInput instanceof HTMLInputElement) emailInput.value = config.email;
+			if (siteNameInput instanceof HTMLInputElement) {
+				siteNameInput.value = config.siteName;
+			}
+			if (siteDescriptionInput instanceof HTMLInputElement) {
+				siteDescriptionInput.value = config.siteDescription;
+			}
+			if (sitePrefixField instanceof HTMLInputElement) {
+				sitePrefixField.value = config.sitePrefix;
+				prefixManuallyEdited = true;
+			}
+
+			if (
+				config.associateDomain &&
+				associateDomainCheckbox instanceof HTMLInputElement
+			) {
+				associateDomainCheckbox.checked = true;
+				showDomainSection(true);
+				void loadDomains(config.zoneId);
+			}
+		} catch {
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.config);
+		}
+	}
+
+	form?.addEventListener("submit", (event) => {
+		event.preventDefault();
+
+		const formData = new FormData(form instanceof HTMLFormElement ? form : undefined);
+		const name = String(formData.get("name") ?? "").trim();
+		const email = String(formData.get("email") ?? "").trim();
+		const password = String(formData.get("password") ?? "");
+		const siteName = String(formData.get("site_name") ?? "").trim();
+		const siteDescription = String(formData.get("site_description") ?? "").trim();
+		const sitePrefix = String(formData.get("site_prefix") ?? "")
+			.toLowerCase()
+			.trim();
+		const associateDomain = formData.get("associate_domain") === "on";
+		const zoneId = String(formData.get("zone_id") ?? "").trim();
+		const zoneName = String(formData.get("zone_name") ?? "").trim();
+
+		if (!name || !email || !password) {
+			window.location.href = "/setup/2?error=missing_fields";
+			return;
+		}
+
+		if (password.length < 8) {
+			window.location.href = "/setup/2?error=password_too_short";
+			return;
+		}
+
+		if (!isValidSitePrefix(sitePrefix)) {
+			window.location.href = "/setup/2?error=invalid_prefix";
+			return;
+		}
+
+		if (associateDomain && !zoneId) {
+			window.location.href = "/setup/2?error=domain_required";
+			return;
+		}
+
+		const config: WizardSetupConfig = {
+			name,
+			email,
+			password,
+			siteName: siteName || "demo site",
+			siteDescription: siteDescription || "demo_description",
+			sitePrefix,
+			associateDomain,
+			...(associateDomain && zoneId
+				? { zoneId, zoneName: zoneName || undefined }
+				: {}),
+		};
+
+		sessionStorage.setItem(WIZARD_STORAGE_KEYS.config, JSON.stringify(config));
+		sessionStorage.setItem(WIZARD_STORAGE_KEYS.configCompleted, "true");
+		window.location.href = "/setup/3";
+	});
+
+	syncPrefixFromSiteName();
+</script>
