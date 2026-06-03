@@ -1,0 +1,584 @@
+---
+import SetupLayout from "../../layouts/SetupLayout.astro";
+import Notificacao from "../../components/Notificacao.astro";
+import { WIZARD_ERROR_MESSAGES } from "../../lib/wizard/session";
+
+const installed = Astro.url.searchParams.get("installed") === "1";
+---
+
+<SetupLayout
+	currentStep={3}
+	wide
+	description="Revise os recursos Cloudflare que serão criados para o EdgePress."
+>
+	{
+		installed && (
+			<Notificacao
+				type="success"
+				message="Instalação concluída. O build a partir da branch main do GitHub foi disparado."
+				className="mb-4"
+			/>
+		)
+	}
+
+	<div id="install-error-panel" class="hidden mb-4 space-y-2">
+		<Notificacao type="error" message="" className="mb-0" />
+		<div class="rounded-box border border-error/30 bg-error/5 p-3 text-xs space-y-2">
+			<p><span class="font-semibold">Código:</span> <span id="install-error-code"></span></p>
+			<p><span class="font-semibold">Etapa:</span> <span id="install-error-step"></span></p>
+			<p><span class="font-semibold">Detalhe:</span> <span id="install-error-message"></span></p>
+			<p class="text-base-content/60">
+				Abra o console do navegador (F12) para ver o debug completo.
+			</p>
+		</div>
+	</div>
+
+	<script
+		id="wizard-error-messages"
+		type="application/json"
+		set:html={JSON.stringify(WIZARD_ERROR_MESSAGES)}
+	></script>
+
+	<div id="overview-loading" class="mb-4">
+		<Notificacao
+			type="info"
+			message="Carregando overview dos recursos..."
+			className="mb-0"
+		/>
+	</div>
+
+	<div id="install-loading" class="hidden mb-4">
+		<Notificacao
+			type="info"
+			message="Instalando recursos no Cloudflare e configurando deploy via GitHub..."
+			className="mb-0"
+		/>
+	</div>
+
+	<div id="overview-content" class="hidden space-y-4">
+		<div class="rounded-box border border-base-300 bg-base-200/40 p-4 text-sm space-y-1">
+			<p>
+				<span class="font-medium">Site:</span>
+				<span id="overview-site-name"></span>
+			</p>
+			<p>
+				<span class="font-medium">Prefixo:</span>
+				<span id="overview-site-prefix" class="font-mono"></span>
+			</p>
+			<p id="overview-domain-row" class="hidden">
+				<span class="font-medium">Domínio:</span>
+				<span id="overview-domain-name"></span>
+			</p>
+			<p>
+				<span class="font-medium">Repositório:</span>
+				<span class="font-mono">amb1io/edgepress@main</span>
+			</p>
+		</div>
+
+		<div class="overflow-x-auto">
+			<table class="table table-zebra table-sm">
+				<thead>
+					<tr>
+						<th>Recurso</th>
+						<th>Nome</th>
+						<th>Binding</th>
+						<th>Status</th>
+						<th>Cloudflare</th>
+					</tr>
+				</thead>
+				<tbody id="overview-resources"></tbody>
+			</table>
+		</div>
+
+		<div id="install-result-panel" class="hidden rounded-box border border-success/30 bg-success/10 p-4 text-sm space-y-3">
+			<div>
+				<p class="font-medium text-success">Extrato da instalação</p>
+				<p class="text-xs text-base-content/70 mt-1">
+					Recursos criados ou reutilizados na sua conta Cloudflare.
+				</p>
+			</div>
+			<div class="overflow-x-auto">
+				<table class="table table-sm">
+					<thead>
+						<tr>
+							<th>Recurso</th>
+							<th>Nome</th>
+							<th>Resultado</th>
+							<th>Abrir no Cloudflare</th>
+						</tr>
+					</thead>
+					<tbody id="install-result-list"></tbody>
+				</table>
+			</div>
+		</div>
+
+		<div class="form-control mt-2 space-y-3">
+			<a href="/setup/2" class="btn btn-ghost w-full">Voltar</a>
+			<button
+				type="button"
+				id="install-site-button"
+				class="btn btn-primary btn-lg w-full"
+			>
+				Instalar Site
+			</button>
+		</div>
+	</div>
+</SetupLayout>
+
+<script>
+	import { buildResourcePlan, deriveSitePrefix } from "../../lib/wizard/resources";
+	import {
+		WIZARD_STORAGE_KEYS,
+		type WizardSetupConfig,
+	} from "../../lib/wizard/session";
+
+	const urlError = new URLSearchParams(window.location.search).get("error");
+	const wizardErrorMessages = JSON.parse(
+		document.getElementById("wizard-error-messages")?.textContent ?? "{}",
+	) as Record<string, string>;
+
+	if (sessionStorage.getItem(WIZARD_STORAGE_KEYS.validated) !== "true") {
+		window.location.href = "/setup/1";
+	}
+
+	if (sessionStorage.getItem(WIZARD_STORAGE_KEYS.configCompleted) !== "true") {
+		window.location.href = "/setup/2";
+	}
+
+	const savedConfig = sessionStorage.getItem(WIZARD_STORAGE_KEYS.config);
+	const overviewLoading = document.getElementById("overview-loading");
+	const installLoading = document.getElementById("install-loading");
+	const overviewContent = document.getElementById("overview-content");
+	const overviewSiteName = document.getElementById("overview-site-name");
+	const overviewSitePrefix = document.getElementById("overview-site-prefix");
+	const overviewDomainRow = document.getElementById("overview-domain-row");
+	const overviewDomainName = document.getElementById("overview-domain-name");
+	const overviewResources = document.getElementById("overview-resources");
+	const installButton = document.getElementById("install-site-button");
+	const installResultPanel = document.getElementById("install-result-panel");
+	const installResultList = document.getElementById("install-result-list");
+	const installErrorPanel = document.getElementById("install-error-panel");
+	const installErrorCode = document.getElementById("install-error-code");
+	const installErrorStep = document.getElementById("install-error-step");
+	const installErrorMessage = document.getElementById("install-error-message");
+
+	let wizardConfig: WizardSetupConfig | null = null;
+
+	type InstallErrorPayload = {
+		errorCode?: string;
+		message?: string;
+		failedStep?: string;
+		debug?: Record<string, unknown>;
+	};
+
+	type EvaluatedResourceRow = {
+		type: string;
+		label: string;
+		name: string;
+		binding?: string;
+		exists: boolean;
+		url?: string;
+	};
+
+	type ResourceSummaryRow = {
+		label: string;
+		name: string;
+		binding?: string;
+		statusLabel: string;
+		url: string;
+		status?: string;
+	};
+
+	function escapeHtml(value: string): string {
+		return value
+			.replaceAll("&", "&amp;")
+			.replaceAll("<", "&lt;")
+			.replaceAll(">", "&gt;")
+			.replaceAll('"', "&quot;");
+	}
+
+	function statusBadge(exists: boolean): string {
+		if (exists) {
+			return '<span class="badge badge-warning badge-sm">Já existe</span>';
+		}
+		return '<span class="badge badge-ghost badge-sm">Será criado</span>';
+	}
+
+	function resultBadge(status?: string, statusLabel?: string): string {
+		const label = escapeHtml(statusLabel ?? "Concluído");
+		switch (status) {
+			case "created":
+				return `<span class="badge badge-success badge-sm">${label}</span>`;
+			case "existing":
+				return `<span class="badge badge-warning badge-sm">${label}</span>`;
+			case "updated":
+				return `<span class="badge badge-info badge-sm">${label}</span>`;
+			default:
+				return `<span class="badge badge-ghost badge-sm">${label}</span>`;
+		}
+	}
+
+	function cloudflareLink(url?: string, label = "Abrir"): string {
+		if (!url) return "—";
+		return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="link link-primary">${escapeHtml(label)}</a>`;
+	}
+
+	function renderOverviewResources(resources: EvaluatedResourceRow[]) {
+		if (!overviewResources) return;
+
+		overviewResources.innerHTML = resources
+			.map(
+				(resource) => `
+				<tr>
+					<td>${escapeHtml(resource.label)}</td>
+					<td class="font-mono text-xs">${escapeHtml(resource.name)}</td>
+					<td>${resource.binding ? escapeHtml(resource.binding) : "—"}</td>
+					<td>${statusBadge(resource.exists)}</td>
+					<td>${resource.exists ? cloudflareLink(resource.url) : "—"}</td>
+				</tr>
+			`,
+			)
+			.join("");
+	}
+
+	function renderPlannedResources(
+		resources: ReturnType<typeof buildResourcePlan>,
+	) {
+		if (!overviewResources) return;
+
+		overviewResources.innerHTML = resources
+			.map(
+				(resource) => `
+				<tr>
+					<td>${escapeHtml(resource.label)}</td>
+					<td class="font-mono text-xs">${escapeHtml(resource.name)}</td>
+					<td>${resource.binding ? escapeHtml(resource.binding) : "—"}</td>
+					<td><span class="badge badge-ghost badge-sm">Verificando...</span></td>
+					<td>—</td>
+				</tr>
+			`,
+			)
+			.join("");
+	}
+
+	async function evaluateResources(config: WizardSetupConfig) {
+		const token = sessionStorage.getItem(WIZARD_STORAGE_KEYS.token);
+		if (!token) return;
+
+		try {
+			const response = await fetch("/api/cloudflare/evaluate-resources", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ token, config }),
+			});
+			const result = await response.json();
+
+			if (result.success && Array.isArray(result.resources)) {
+				renderOverviewResources(result.resources as EvaluatedResourceRow[]);
+				return;
+			}
+
+			console.error("[EdgePress Wizard] Falha ao avaliar recursos", result);
+		} catch (error) {
+			console.error("[EdgePress Wizard] Erro ao avaliar recursos", error);
+		}
+	}
+
+	function showInstallError(payload: InstallErrorPayload) {
+		installErrorPanel?.classList.remove("hidden");
+
+		const alertMessage = installErrorPanel?.querySelector(".text-sm");
+		const summary =
+			payload.message ??
+			(payload.errorCode
+				? `Falha na instalação (${payload.errorCode}).`
+				: "Falha na instalação.");
+
+		if (alertMessage) alertMessage.textContent = summary;
+		if (installErrorCode) {
+			installErrorCode.textContent = payload.errorCode ?? "install_failed";
+		}
+		if (installErrorStep) {
+			installErrorStep.textContent = payload.failedStep ?? "desconhecida";
+		}
+		if (installErrorMessage) {
+			installErrorMessage.textContent = payload.message ?? summary;
+		}
+
+		console.error("[EdgePress Wizard] Detalhes da falha na instalação Cloudflare", {
+			errorCode: payload.errorCode,
+			message: payload.message,
+			failedStep: payload.failedStep,
+			debug: payload.debug,
+		});
+	}
+
+	function loadStoredInstallError() {
+		const raw = sessionStorage.getItem(WIZARD_STORAGE_KEYS.installError);
+		if (raw) {
+			try {
+				const payload = JSON.parse(raw) as InstallErrorPayload;
+				showInstallError(payload);
+			} catch (error) {
+				console.error("[EdgePress Wizard] Erro ao ler installError do sessionStorage", {
+					raw,
+					error,
+				});
+			} finally {
+				sessionStorage.removeItem(WIZARD_STORAGE_KEYS.installError);
+			}
+			return;
+		}
+
+		if (urlError) {
+			showInstallError({
+				errorCode: urlError,
+				message:
+					wizardErrorMessages[urlError] ??
+					"Erro ao instalar recursos no Cloudflare.",
+			});
+		}
+	}
+
+	function showInstallLoading(show: boolean) {
+		installLoading?.classList.toggle("hidden", !show);
+		installButton?.toggleAttribute("disabled", show);
+	}
+
+	function renderInstallResult(result: Record<string, unknown>) {
+		if (!installResultPanel || !installResultList) return;
+
+		const summary = result.summary as ResourceSummaryRow[] | undefined;
+
+		if (summary?.length) {
+			installResultList.innerHTML = summary
+				.map(
+					(item) => `
+					<tr>
+						<td>${escapeHtml(item.label)}</td>
+						<td class="font-mono text-xs">${escapeHtml(item.name)}</td>
+						<td>${resultBadge(item.status, item.statusLabel)}</td>
+						<td>${cloudflareLink(item.url, "Abrir no dashboard")}</td>
+					</tr>
+				`,
+				)
+				.join("");
+			installResultPanel.classList.remove("hidden");
+			return;
+		}
+
+		const created = result.created as
+			| {
+					d1?: { name: string; created: boolean };
+					kv?: { name: string; created: boolean };
+					r2?: { name: string; created: boolean };
+					worker?: { name: string; created: boolean };
+			  }
+			| undefined;
+
+		const fallbackRows: ResourceSummaryRow[] = [];
+		if (created?.d1) {
+			fallbackRows.push({
+				label: "D1 Database",
+				name: created.d1.name,
+				status: created.d1.created ? "created" : "existing",
+				statusLabel: created.d1.created ? "Criado" : "Já existia",
+				url: "",
+			});
+		}
+		if (created?.kv) {
+			fallbackRows.push({
+				label: "KV Namespace",
+				name: created.kv.name,
+				status: created.kv.created ? "created" : "existing",
+				statusLabel: created.kv.created ? "Criado" : "Já existia",
+				url: "",
+			});
+		}
+		if (created?.r2) {
+			fallbackRows.push({
+				label: "R2 Bucket",
+				name: created.r2.name,
+				status: created.r2.created ? "created" : "existing",
+				statusLabel: created.r2.created ? "Criado" : "Já existia",
+				url: "",
+			});
+		}
+		if (created?.worker) {
+			fallbackRows.push({
+				label: "Worker",
+				name: created.worker.name,
+				status: created.worker.created ? "created" : "updated",
+				statusLabel: created.worker.created ? "Criado" : "Atualizado",
+				url: "",
+			});
+		}
+
+		installResultList.innerHTML = fallbackRows
+			.map(
+				(item) => `
+				<tr>
+					<td>${escapeHtml(item.label)}</td>
+					<td class="font-mono text-xs">${escapeHtml(item.name)}</td>
+					<td>${resultBadge(item.status, item.statusLabel)}</td>
+					<td>—</td>
+				</tr>
+			`,
+			)
+			.join("");
+		installResultPanel.classList.remove("hidden");
+	}
+
+	async function runPendingInstall() {
+		if (sessionStorage.getItem(WIZARD_STORAGE_KEYS.installPending) !== "true") {
+			return;
+		}
+
+		const token = sessionStorage.getItem(WIZARD_STORAGE_KEYS.token);
+		const configRaw = sessionStorage.getItem(WIZARD_STORAGE_KEYS.config);
+
+		if (!token || !configRaw) {
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.installPending);
+			window.location.href = "/setup/1?error=missing_token";
+			return;
+		}
+
+		showInstallLoading(true);
+
+		try {
+			const config = JSON.parse(configRaw) as WizardSetupConfig;
+			const response = await fetch("/api/cloudflare/install", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ token, config }),
+			});
+
+			const result = await response.json();
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.installPending);
+
+			if (result.success) {
+				sessionStorage.removeItem(WIZARD_STORAGE_KEYS.installError);
+				sessionStorage.setItem(WIZARD_STORAGE_KEYS.installCompleted, "true");
+				sessionStorage.setItem(
+					WIZARD_STORAGE_KEYS.installResult,
+					JSON.stringify(result),
+				);
+				window.location.href = "/setup/3?installed=1";
+				return;
+			}
+
+			const errorPayload: InstallErrorPayload = {
+				errorCode: result.errorCode ?? "install_failed",
+				message: result.message ?? "Falha ao instalar recursos no Cloudflare.",
+				failedStep: result.failedStep,
+				debug: result.debug,
+			};
+
+			sessionStorage.setItem(
+				WIZARD_STORAGE_KEYS.installError,
+				JSON.stringify(errorPayload),
+			);
+
+			console.error(
+				"[EdgePress Wizard] Falha na instalação Cloudflare",
+				errorPayload,
+			);
+
+			window.location.href = `/setup/3?error=${encodeURIComponent(errorPayload.errorCode ?? "install_failed")}`;
+		} catch (error) {
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.installPending);
+
+			const errorPayload: InstallErrorPayload = {
+				errorCode: "network_error",
+				message:
+					error instanceof Error
+						? error.message
+						: "Não foi possível conectar ao servidor de instalação.",
+				failedStep: "client_request",
+				debug: {
+					error:
+						error instanceof Error
+							? {
+									name: error.name,
+									message: error.message,
+									stack: error.stack,
+								}
+							: error,
+				},
+			};
+
+			sessionStorage.setItem(
+				WIZARD_STORAGE_KEYS.installError,
+				JSON.stringify(errorPayload),
+			);
+
+			console.error(
+				"[EdgePress Wizard] Erro de rede ao instalar recursos Cloudflare",
+				errorPayload,
+			);
+
+			window.location.href = "/setup/3?error=network_error";
+		}
+	}
+
+	installButton?.addEventListener("click", () => {
+		sessionStorage.setItem(WIZARD_STORAGE_KEYS.installPending, "true");
+		window.location.reload();
+	});
+
+	const isPendingInstall =
+		sessionStorage.getItem(WIZARD_STORAGE_KEYS.installPending) === "true";
+	if (isPendingInstall) {
+		overviewLoading?.classList.add("hidden");
+		showInstallLoading(true);
+	}
+
+	if (!savedConfig) {
+		window.location.href = "/setup/2";
+	} else {
+		try {
+			wizardConfig = JSON.parse(savedConfig) as WizardSetupConfig;
+			const sitePrefix =
+				wizardConfig.sitePrefix || deriveSitePrefix(wizardConfig.siteName);
+			const resources = buildResourcePlan(sitePrefix);
+
+			if (overviewSiteName) overviewSiteName.textContent = wizardConfig.siteName;
+			if (overviewSitePrefix) overviewSitePrefix.textContent = sitePrefix;
+
+			if (wizardConfig.associateDomain && wizardConfig.zoneName) {
+				overviewDomainRow?.classList.remove("hidden");
+				if (overviewDomainName) {
+					overviewDomainName.textContent = wizardConfig.zoneName;
+				}
+			}
+
+			if (overviewResources) {
+				renderPlannedResources(resources);
+			}
+
+			const savedInstallResult = sessionStorage.getItem(
+				WIZARD_STORAGE_KEYS.installResult,
+			);
+			const installCompleted =
+				sessionStorage.getItem(WIZARD_STORAGE_KEYS.installCompleted) === "true";
+
+			if (installCompleted && savedInstallResult) {
+				renderInstallResult(JSON.parse(savedInstallResult));
+				installButton?.classList.add("btn-disabled");
+				installButton?.setAttribute("disabled", "true");
+				if (installButton) installButton.textContent = "Site instalado";
+			} else {
+				void evaluateResources(wizardConfig);
+			}
+
+			overviewLoading?.classList.add("hidden");
+			overviewContent?.classList.remove("hidden");
+			loadStoredInstallError();
+			void runPendingInstall();
+		} catch {
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.config);
+			sessionStorage.removeItem(WIZARD_STORAGE_KEYS.configCompleted);
+			window.location.href = "/setup/2";
+		}
+	}
+</script>
