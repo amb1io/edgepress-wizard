@@ -1,0 +1,44 @@
+---
+import Layout from "./Layout.astro";
+import WizardSteps from "../components/WizardSteps.astro";
+
+interface Props {
+	title?: string;
+	currentStep: number;
+	description?: string;
+	wide?: boolean;
+}
+
+const {
+	title = "Setup - EdgePress Wizard",
+	currentStep,
+	description,
+	wide = false,
+} = Astro.props;
+---
+
+<Layout title={title}>
+	<main class="min-h-screen flex items-center justify-center bg-base-200 p-4">
+		<div
+			class:list={[
+				"card w-full bg-base-100 shadow-xl",
+				wide ? "max-w-xl" : "max-w-md",
+			]}
+		>
+			<div class="card-body">
+				<h1 class="card-title justify-center text-2xl mb-2">
+					Deploy EdgePress
+				</h1>
+				{
+					description && (
+						<p class="text-center text-base-content/70 text-sm mb-4">
+							{description}
+						</p>
+					)
+				}
+				<WizardSteps currentStep={currentStep} />
+				<slot />
+			</div>
+		</div>
+	</main>
+</Layout>

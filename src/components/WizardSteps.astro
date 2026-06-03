@@ -1,0 +1,28 @@
+---
+interface Props {
+	currentStep: number;
+}
+
+const { currentStep } = Astro.props;
+
+const steps = [
+	{ number: 1, label: "Token Cloudflare" },
+	{ number: 2, label: "Configuração" },
+	{ number: 3, label: "Overview" },
+];
+---
+
+<ul class="steps steps-horizontal w-full mb-6">
+	{
+		steps.map((step) => (
+			<li
+				class:list={[
+					"step",
+					step.number <= currentStep && "step-primary",
+				]}
+			>
+				{step.label}
+			</li>
+		))
+	}
+</ul>
