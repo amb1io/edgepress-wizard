@@ -1,6 +1,3 @@
-import { webcrypto as crypto } from "node:crypto";
-import { TextEncoder } from "node:util";
-
 export const RECOMMENDED_CODE_VERIFIER_LENGTH = 96;
 export const RECOMMENDED_STATE_LENGTH = 32;
 

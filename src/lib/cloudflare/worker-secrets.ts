@@ -1,8 +1,15 @@
-import { randomBytes } from "node:crypto";
 import { cloudflareRequest } from "./api-client";
 
+function randomBase64Secret(byteLength: number): string {
+	const bytes = new Uint8Array(byteLength);
+	crypto.getRandomValues(bytes);
+	let binary = "";
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+	return btoa(binary);
+}
+
 export function generateBetterAuthSecret(): string {
-	return randomBytes(32).toString("base64");
+	return randomBase64Secret(32);
 }
 
 export async function putWorkerSecret(input: {
