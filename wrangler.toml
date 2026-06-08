@@ -1,0 +1,18 @@
+# EdgePress Wizard — deploy with: npm run build && npx wrangler deploy
+name = "edgepress-wizard"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./dist/client"
+binding = "ASSETS"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true

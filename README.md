@@ -79,7 +79,8 @@ The teardown script also reads `CLOUDFLARE_API_TOKEN`, `CF_API_TOKEN`, or `token
 |---------|-------------|
 | `npm run dev` | Start the dev server |
 | `npm run build` | Production build to `./dist/` |
-| `npm run preview` | Preview the production build |
+| `npm run preview` | Local preview with `wrangler dev` |
+| `npm run deploy` | Build and deploy to Cloudflare Workers (`wrangler.toml`) |
 
 ### Teardown test resources
 
