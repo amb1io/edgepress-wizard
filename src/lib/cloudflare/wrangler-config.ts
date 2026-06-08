@@ -111,10 +111,42 @@ head_sampling_rate = 1
 `;
 }
 
-/** Shell command run by Workers Builds: writes wrangler.toml then runs the EdgePress build. */
-export function buildWranglerBuildCommand(wranglerToml: string): string {
-	const encoded = Buffer.from(wranglerToml, "utf8").toString("base64");
-	return `node -e "require('fs').writeFileSync('wrangler.toml', Buffer.from('${encoded}', 'base64'))" && npm run build`;
+/** Env var written on the build trigger; holds base64-encoded wrangler.toml. */
+export const WRANGLER_TOML_ENV_KEY = "WIZARD_WRANGLER_TOML_B64";
+
+/** Wrangler reads this during GitHub Builds (migrate + seed on remote D1). */
+export const CLOUDFLARE_API_TOKEN_ENV_KEY = "CLOUDFLARE_API_TOKEN";
+
+/**
+ * Same remote DB flow as EdgePress `db:migrate:remote` + `db:seed:remote`:
+ * wrangler migrations apply, then execute committed drizzle/seed/seed-remote.sql.
+ * Wizard-specific data (admin user, site name) is applied after deploy via POST /api/setup.
+ */
+export function buildWranglerBuildCommand(d1DatabaseName: string): string {
+	const writeToml = `node -e "require('fs').writeFileSync('wrangler.toml',Buffer.from(process.env.${WRANGLER_TOML_ENV_KEY},'base64'))"`;
+	const db = JSON.stringify(d1DatabaseName);
+	return [
+		writeToml,
+		`npx wrangler d1 migrations apply ${db} --remote -c wrangler.toml`,
+		`npx wrangler d1 execute ${db} --remote --file=./drizzle/seed/seed-remote.sql -c wrangler.toml`,
+		"npm run build",
+	].join(" && ");
+}
+
+export function buildWranglerBuildEnvironment(input: {
+	wranglerToml: string;
+	apiToken: string;
+}): Record<string, { value: string; is_secret: boolean }> {
+	return {
+		[WRANGLER_TOML_ENV_KEY]: {
+			value: Buffer.from(input.wranglerToml, "utf8").toString("base64"),
+			is_secret: false,
+		},
+		[CLOUDFLARE_API_TOKEN_ENV_KEY]: {
+			value: input.apiToken,
+			is_secret: true,
+		},
+	};
 }
 
 export function buildWranglerDeployCommand(): string {
@@ -123,6 +155,7 @@ export function buildWranglerDeployCommand(): string {
 
 export function buildWranglerConfigForSite(input: {
 	config: WizardSetupConfig;
+	apiToken: string;
 	bindings: Omit<WranglerBindingConfig, "workerName"> & {
 		d1: { name: string; id: string };
 		kv: { name: string; id: string };
@@ -145,7 +178,11 @@ export function buildWranglerConfigForSite(input: {
 		workerName,
 		auth,
 		wranglerToml,
-		buildCommand: buildWranglerBuildCommand(wranglerToml),
+		buildCommand: buildWranglerBuildCommand(input.bindings.d1.name),
+		buildEnvironment: buildWranglerBuildEnvironment({
+			wranglerToml,
+			apiToken: input.apiToken,
+		}),
 		deployCommand: buildWranglerDeployCommand(),
 	};
 }

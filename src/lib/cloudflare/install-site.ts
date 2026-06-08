@@ -14,6 +14,15 @@ import {
 	enableWorkerSubdomain,
 	getWorkersSubdomain,
 } from "./workers-subdomain";
+import {
+	completeEdgePressSetup,
+	updateSiteUrlSetting,
+	type EdgePressSetupResult,
+} from "./complete-edgepress-setup";
+import {
+	WorkerBuildFailedError,
+	waitForWorkerBuild,
+} from "./poll-worker-build";
 import { buildWranglerConfigForSite } from "./wrangler-config";
 import { buildResourcePlan } from "../wizard/resources";
 import type { WizardSetupConfig } from "../wizard/session";
@@ -40,6 +49,7 @@ export type InstallSiteResult = {
 		secretConfigured: boolean;
 	};
 	builds?: Awaited<ReturnType<typeof setupWorkerGitHubBuilds>>;
+	setup?: EdgePressSetupResult;
 	summary?: ResourceSummaryItem[];
 	debug: Record<string, unknown>;
 };
@@ -139,6 +149,7 @@ export async function installEdgePressSite(input: {
 		steps.push("build_wrangler_config");
 		const wranglerConfig = buildWranglerConfigForSite({
 			config: input.config,
+			apiToken: input.token,
 			bindings: {
 				d1: created.d1,
 				kv: created.kv,
@@ -169,7 +180,38 @@ export async function installEdgePressSite(input: {
 			repo: githubRepo,
 			buildCommand: wranglerConfig.buildCommand,
 			deployCommand: wranglerConfig.deployCommand,
+			buildEnvironment: wranglerConfig.buildEnvironment,
 		});
+
+		let setup: EdgePressSetupResult | undefined;
+		if (builds.buildUuid) {
+			steps.push("wait_worker_build");
+			await waitForWorkerBuild({
+				token: input.token,
+				accountId,
+				buildUuid: builds.buildUuid,
+			});
+
+			// Brief pause so the deployed worker is reachable on workers.dev.
+			await new Promise((resolve) => setTimeout(resolve, 5_000));
+
+			steps.push("complete_edgepress_setup");
+			setup = await completeEdgePressSetup({
+				workerBaseUrl: wranglerConfig.auth.workersDevUrl,
+				config: input.config,
+			});
+
+			if (wranglerConfig.auth.customDomainUrl) {
+				steps.push("update_site_url_setting");
+				await updateSiteUrlSetting({
+					token: input.token,
+					accountId,
+					d1DatabaseId: created.d1.id,
+					siteUrl: wranglerConfig.auth.customDomainUrl,
+				});
+				setup = { ...setup, siteUrlUpdated: true };
+			}
+		}
 
 		steps.push("install_completed");
 		const summary = buildInstallSummary({
@@ -211,13 +253,16 @@ export async function installEdgePressSite(input: {
 			},
 			wrangler,
 			builds,
+			setup,
 			summary,
 			debug: createDebug(startedAt, steps, {
 				accountId,
 				githubRepo,
 				summary,
 				wrangler,
-				wranglerToml: wranglerConfig.wranglerToml,
+				setup,
+				buildCommandLength: wranglerConfig.buildCommand.length,
+				wranglerTomlBytes: Buffer.byteLength(wranglerConfig.wranglerToml, "utf8"),
 			}),
 		};
 	} catch (error) {
@@ -252,14 +297,13 @@ export async function installEdgePressSite(input: {
 					}
 				: error;
 
+		if (error instanceof WorkerBuildFailedError) {
+			debug.buildLogs = error.buildLogs;
+		}
+
 		return {
 			success: false,
-			errorCode:
-				error instanceof Error && error.message.includes("build token")
-					? "install_build_token_missing"
-					: error instanceof Error && error.message.includes("GitHub")
-						? "install_github_error"
-						: "install_failed",
+			errorCode: mapGenericInstallErrorCode(error),
 			message:
 				error instanceof Error
 					? error.message
@@ -274,7 +318,11 @@ function mapCloudflareErrorCode(error: CloudflareApiError): string {
 	if (error.step.includes("repo_connection")) {
 		return "install_github_not_connected";
 	}
-	if (error.step.includes("build_trigger") || error.step.includes("build_tokens")) {
+	if (
+		error.step.includes("build_trigger") ||
+		error.step.includes("build_tokens") ||
+		error.step.includes("build_trigger_env")
+	) {
 		return "install_build_setup_failed";
 	}
 	if (error.step.includes("put_worker_secret")) {
@@ -285,6 +333,37 @@ function mapCloudflareErrorCode(error: CloudflareApiError): string {
 		error.step.includes("worker_subdomain")
 	) {
 		return "install_subdomain_failed";
+	}
+	if (error.step.includes("get_build_status")) {
+		return "install_build_failed";
+	}
+	if (
+		error.step.includes("update_site_url_setting") ||
+		error.step.includes("d1/database")
+	) {
+		return "install_setup_seed_failed";
+	}
+	return "install_failed";
+}
+
+function mapGenericInstallErrorCode(error: unknown): string {
+	if (!(error instanceof Error)) return "install_failed";
+
+	if (error.message.includes("build token")) {
+		return "install_build_token_missing";
+	}
+	if (error.message.includes("GitHub")) {
+		return "install_github_error";
+	}
+	if (error.message.includes("Worker build")) {
+		return "install_build_failed";
+	}
+	if (
+		error.message.includes("EdgePress setup") ||
+		error.message.includes("admin user") ||
+		error.message.includes("Email is already")
+	) {
+		return "install_setup_failed";
 	}
 	return "install_failed";
 }

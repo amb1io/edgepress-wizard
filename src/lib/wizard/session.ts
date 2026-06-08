@@ -40,6 +40,12 @@ export const WIZARD_ERROR_MESSAGES: Record<string, string> = {
 		"Não foi possível configurar BETTER_AUTH_SECRET no Worker. Verifique a permissão Workers Scripts Edit.",
 	install_subdomain_failed:
 		"Não foi possível habilitar o subdomínio workers.dev. Verifique Account Settings Read e Workers Scripts Edit.",
+	install_build_failed:
+		"O build/deploy do Worker falhou ou expirou (migrate, seed ou compile). Verifique os logs no dashboard Cloudflare.",
+	install_setup_failed:
+		"O Worker foi publicado, mas não foi possível concluir o setup do EdgePress (usuário admin e settings).",
+	install_setup_seed_failed:
+		"Setup concluído, mas falhou ao atualizar site_url no D1. Verifique permissão D1 Edit.",
 };
 
 export type WizardSetupConfig = {

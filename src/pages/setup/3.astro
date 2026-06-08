@@ -15,7 +15,7 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 		installed && (
 			<Notificacao
 				type="success"
-				message="Instalação concluída. O build a partir da branch main do GitHub foi disparado."
+				message="Instalação concluída. O site foi publicado e o setup inicial do EdgePress foi aplicado."
 				className="mb-4"
 			/>
 		)
@@ -27,6 +27,7 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 			<p><span class="font-semibold">Código:</span> <span id="install-error-code"></span></p>
 			<p><span class="font-semibold">Etapa:</span> <span id="install-error-step"></span></p>
 			<p><span class="font-semibold">Detalhe:</span> <span id="install-error-message"></span></p>
+			<pre id="install-error-build-logs" class="hidden mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-base-300/50 p-2 text-[11px] font-mono"></pre>
 			<p class="text-base-content/60">
 				Abra o console do navegador (F12) para ver o debug completo.
 			</p>
@@ -50,7 +51,7 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 	<div id="install-loading" class="hidden mb-4">
 		<Notificacao
 			type="info"
-			message="Instalando recursos no Cloudflare e configurando deploy via GitHub..."
+			message="Instalando recursos, fazendo build/deploy e configurando o EdgePress (admin + settings)..."
 			className="mb-0"
 		/>
 	</div>
@@ -161,6 +162,7 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 	const installErrorCode = document.getElementById("install-error-code");
 	const installErrorStep = document.getElementById("install-error-step");
 	const installErrorMessage = document.getElementById("install-error-message");
+	const installErrorBuildLogs = document.getElementById("install-error-build-logs");
 
 	let wizardConfig: WizardSetupConfig | null = null;
 
@@ -168,7 +170,7 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 		errorCode?: string;
 		message?: string;
 		failedStep?: string;
-		debug?: Record<string, unknown>;
+		debug?: Record<string, unknown> & { buildLogs?: string };
 	};
 
 	type EvaluatedResourceRow = {
@@ -306,6 +308,20 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 			installErrorMessage.textContent = payload.message ?? summary;
 		}
 
+		const buildLogs =
+			typeof payload.debug?.buildLogs === "string"
+				? payload.debug.buildLogs
+				: "";
+		if (installErrorBuildLogs) {
+			if (buildLogs) {
+				installErrorBuildLogs.textContent = buildLogs;
+				installErrorBuildLogs.classList.remove("hidden");
+			} else {
+				installErrorBuildLogs.textContent = "";
+				installErrorBuildLogs.classList.add("hidden");
+			}
+		}
+
 		console.error("[EdgePress Wizard] Detalhes da falha na instalação Cloudflare", {
 			errorCode: payload.errorCode,
 			message: payload.message,
@@ -358,8 +374,44 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 					secretConfigured?: boolean;
 			  }
 			| undefined;
+		const setup = result.setup as
+			| {
+					adminEmail?: string;
+					siteName?: string;
+					loginUrl?: string;
+					siteUrlUpdated?: boolean;
+			  }
+			| undefined;
 
 		const rows: ResourceSummaryRow[] = summary ? [...summary] : [];
+
+		if (setup?.adminEmail) {
+			rows.push({
+				label: "Admin (edp_user)",
+				name: setup.adminEmail,
+				status: "created",
+				statusLabel: "Criado",
+				url: setup.loginUrl ?? "",
+			});
+		}
+		if (setup?.siteName) {
+			rows.push({
+				label: "site_name (edp_settings)",
+				name: setup.siteName,
+				status: "updated",
+				statusLabel: "Configurado",
+				url: setup.loginUrl ?? "",
+			});
+		}
+		if (setup?.siteUrlUpdated) {
+			rows.push({
+				label: "site_url (edp_settings)",
+				name: wrangler?.betterAuthUrl ?? "Domínio associado",
+				status: "updated",
+				statusLabel: "Atualizado",
+				url: wrangler?.betterAuthUrl ?? "",
+			});
+		}
 
 		if (wrangler?.betterAuthUrl) {
 			rows.push({
@@ -510,7 +562,14 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 				errorCode: result.errorCode ?? "install_failed",
 				message: result.message ?? "Falha ao instalar recursos no Cloudflare.",
 				failedStep: result.failedStep,
-				debug: result.debug,
+				debug: {
+					...(result.debug as Record<string, unknown>),
+					buildLogs:
+						typeof (result.debug as { buildLogs?: string })?.buildLogs ===
+						"string"
+							? (result.debug as { buildLogs: string }).buildLogs
+							: undefined,
+				},
 			};
 
 			sessionStorage.setItem(

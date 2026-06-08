@@ -6,6 +6,7 @@ type BuildToken = { build_token_uuid: string; build_token_name?: string };
 type RepoConnection = { repo_connection_uuid: string };
 type BuildTrigger = { trigger_uuid: string };
 type BuildRun = { build_uuid?: string; status?: string };
+type BuildEnvironmentVariable = { value: string; is_secret: boolean };
 
 async function getBuildTokenUuid(
 	token: string,
@@ -68,6 +69,23 @@ async function findExistingTrigger(
 	return triggers[0];
 }
 
+async function upsertBuildTriggerEnvironmentVariables(input: {
+	token: string;
+	accountId: string;
+	triggerUuid: string;
+	environmentVariables: Record<string, BuildEnvironmentVariable>;
+}): Promise<void> {
+	await cloudflareRequest<Record<string, BuildEnvironmentVariable>>(
+		input.token,
+		`/accounts/${input.accountId}/builds/triggers/${input.triggerUuid}/environment_variables`,
+		{
+			method: "PATCH",
+			step: "upsert_build_trigger_env",
+			body: JSON.stringify(input.environmentVariables),
+		},
+	);
+}
+
 async function createProductionTrigger(input: {
 	token: string;
 	accountId: string;
@@ -77,12 +95,16 @@ async function createProductionTrigger(input: {
 	branch: string;
 	buildCommand: string;
 	deployCommand: string;
+	environmentVariables: Record<string, BuildEnvironmentVariable>;
 }): Promise<string> {
 	const existing = await findExistingTrigger(
 		input.token,
 		input.accountId,
 		input.workerTag,
 	);
+
+	let triggerUuid: string;
+
 	if (existing?.trigger_uuid) {
 		await updateBuildTrigger({
 			token: input.token,
@@ -91,36 +113,45 @@ async function createProductionTrigger(input: {
 			buildCommand: input.buildCommand,
 			deployCommand: input.deployCommand,
 		});
-		return existing.trigger_uuid;
+		triggerUuid = existing.trigger_uuid;
+	} else {
+		const trigger = await cloudflareRequest<BuildTrigger>(
+			input.token,
+			`/accounts/${input.accountId}/builds/triggers`,
+			{
+				method: "POST",
+				step: "create_build_trigger",
+				body: JSON.stringify({
+					external_script_id: input.workerTag,
+					repo_connection_uuid: input.repoConnectionUuid,
+					build_token_uuid: input.buildTokenUuid,
+					trigger_name: "EdgePress production",
+					build_command: input.buildCommand,
+					deploy_command: input.deployCommand,
+					root_directory: "/",
+					branch_includes: [input.branch],
+					branch_excludes: [],
+					path_includes: ["*"],
+					path_excludes: [],
+				}),
+			},
+		);
+
+		if (!trigger.trigger_uuid) {
+			throw new Error("A API não retornou trigger_uuid.");
+		}
+
+		triggerUuid = trigger.trigger_uuid;
 	}
 
-	const trigger = await cloudflareRequest<BuildTrigger>(
-		input.token,
-		`/accounts/${input.accountId}/builds/triggers`,
-		{
-			method: "POST",
-			step: "create_build_trigger",
-			body: JSON.stringify({
-				external_script_id: input.workerTag,
-				repo_connection_uuid: input.repoConnectionUuid,
-				build_token_uuid: input.buildTokenUuid,
-				trigger_name: "EdgePress production",
-				build_command: input.buildCommand,
-				deploy_command: input.deployCommand,
-				root_directory: "/",
-				branch_includes: [input.branch],
-				branch_excludes: [],
-				path_includes: ["*"],
-				path_excludes: [],
-			}),
-		},
-	);
+	await upsertBuildTriggerEnvironmentVariables({
+		token: input.token,
+		accountId: input.accountId,
+		triggerUuid,
+		environmentVariables: input.environmentVariables,
+	});
 
-	if (!trigger.trigger_uuid) {
-		throw new Error("A API não retornou trigger_uuid.");
-	}
-
-	return trigger.trigger_uuid;
+	return triggerUuid;
 }
 
 async function updateBuildTrigger(input: {
@@ -182,6 +213,7 @@ export async function setupWorkerGitHubBuilds(input: {
 	repo: GitHubRepoInfo;
 	buildCommand: string;
 	deployCommand: string;
+	buildEnvironment: Record<string, BuildEnvironmentVariable>;
 }): Promise<WorkerBuildSetupResult> {
 	const branch = EDGPRESS_GITHUB.branch || input.repo.defaultBranch;
 	const buildTokenUuid = await getBuildTokenUuid(input.token, input.accountId);
@@ -199,6 +231,7 @@ export async function setupWorkerGitHubBuilds(input: {
 		branch,
 		buildCommand: input.buildCommand,
 		deployCommand: input.deployCommand,
+		environmentVariables: input.buildEnvironment,
 	});
 	const build = await triggerInitialBuild({
 		token: input.token,
