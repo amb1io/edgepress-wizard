@@ -226,6 +226,49 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 		return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="link link-primary">${escapeHtml(label)}</a>`;
 	}
 
+	function mergePlannedWithEvaluated(
+		planned: ReturnType<typeof buildResourcePlan>,
+		evaluated: EvaluatedResourceRow[],
+	): EvaluatedResourceRow[] {
+		const evaluatedByName = new Map(evaluated.map((item) => [item.name, item]));
+
+		return planned.map((item) => {
+			const match = evaluatedByName.get(item.name);
+			if (match) return match;
+
+			return {
+				type: item.type,
+				label: item.label,
+				name: item.name,
+				binding: item.binding,
+				exists: false,
+			};
+		});
+	}
+
+	function renderOverviewFromSummary(summary: ResourceSummaryRow[]) {
+		if (!overviewResources) return;
+
+		const infraTypes = new Set(["d1", "kv", "r2", "queue", "worker", "builds"]);
+		const rows = summary.filter(
+			(item) => item.type && infraTypes.has(item.type),
+		);
+
+		overviewResources.innerHTML = rows
+			.map(
+				(item) => `
+				<tr>
+					<td>${escapeHtml(item.label)}</td>
+					<td class="font-mono text-xs">${escapeHtml(item.name)}</td>
+					<td>${item.binding ? escapeHtml(item.binding) : "—"}</td>
+					<td>${resultBadge(item.status, item.statusLabel)}</td>
+					<td>${item.url ? cloudflareLink(item.url) : "—"}</td>
+				</tr>
+			`,
+			)
+			.join("");
+	}
+
 	function renderOverviewResources(resources: EvaluatedResourceRow[]) {
 		if (!overviewResources) return;
 
@@ -264,7 +307,10 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 			.join("");
 	}
 
-	async function evaluateResources(config: WizardSetupConfig) {
+	async function evaluateResources(
+		config: WizardSetupConfig,
+		planned: ReturnType<typeof buildResourcePlan>,
+	) {
 		const token = sessionStorage.getItem(WIZARD_STORAGE_KEYS.token);
 		if (!token) return;
 
@@ -277,7 +323,12 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 			const result = await response.json();
 
 			if (result.success && Array.isArray(result.resources)) {
-				renderOverviewResources(result.resources as EvaluatedResourceRow[]);
+				renderOverviewResources(
+					mergePlannedWithEvaluated(
+						planned,
+						result.resources as EvaluatedResourceRow[],
+					),
+				);
 				return;
 			}
 
@@ -463,6 +514,8 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 					d1?: { name: string; created: boolean };
 					kv?: { name: string; created: boolean };
 					r2?: { name: string; created: boolean };
+					importQueue?: { name: string; created: boolean };
+					importDlq?: { name: string; created: boolean };
 					worker?: { name: string; created: boolean };
 			  }
 			| undefined;
@@ -492,6 +545,27 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 				name: created.r2.name,
 				status: created.r2.created ? "created" : "existing",
 				statusLabel: created.r2.created ? "Criado" : "Já existia",
+				url: "",
+			});
+		}
+		if (created?.importQueue) {
+			fallbackRows.push({
+				type: "queue",
+				label: "Import Queue",
+				name: created.importQueue.name,
+				binding: "IMPORT_QUEUE",
+				status: created.importQueue.created ? "created" : "existing",
+				statusLabel: created.importQueue.created ? "Criado" : "Já existia",
+				url: "",
+			});
+		}
+		if (created?.importDlq) {
+			fallbackRows.push({
+				type: "queue",
+				label: "Import DLQ",
+				name: created.importDlq.name,
+				status: created.importDlq.created ? "created" : "existing",
+				statusLabel: created.importDlq.created ? "Criado" : "Já existia",
 				url: "",
 			});
 		}
@@ -661,12 +735,20 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 				sessionStorage.getItem(WIZARD_STORAGE_KEYS.installCompleted) === "true";
 
 			if (installCompleted && savedInstallResult) {
-				renderInstallResult(JSON.parse(savedInstallResult));
+				const installResult = JSON.parse(savedInstallResult) as Record<
+					string,
+					unknown
+				>;
+				renderInstallResult(installResult);
+				const summary = installResult.summary as ResourceSummaryRow[] | undefined;
+				if (summary?.length) {
+					renderOverviewFromSummary(summary);
+				}
 				installButton?.classList.add("btn-disabled");
 				installButton?.setAttribute("disabled", "true");
 				if (installButton) installButton.textContent = "Site instalado";
 			} else {
-				void evaluateResources(wizardConfig);
+				void evaluateResources(wizardConfig, resources);
 			}
 
 			overviewLoading?.classList.add("hidden");
