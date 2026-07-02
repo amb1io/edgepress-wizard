@@ -1,6 +1,7 @@
 import {
 	d1DatabaseUrl,
 	kvNamespaceUrl,
+	queueUrl,
 	r2BucketUrl,
 	workerBuildsUrl,
 	workerServiceUrl,
@@ -39,6 +40,8 @@ export function dashboardUrlForResource(
 			return kvNamespaceUrl(accountId, resource.resourceId);
 		case "r2":
 			return r2BucketUrl(accountId, resource.name);
+		case "queue":
+			return queueUrl(accountId, resource.resourceId);
 		case "worker":
 			return workerServiceUrl(accountId, resource.name);
 	}
@@ -111,7 +114,7 @@ export function buildInstallSummary(input: {
 			statusLabel: created.importQueue.created
 				? STATUS_LABELS.created
 				: STATUS_LABELS.existing,
-			url: workerServiceUrl(accountId, workerName),
+			url: queueUrl(accountId, created.importQueue.id),
 			resourceId: created.importQueue.id,
 		},
 		{
@@ -122,7 +125,7 @@ export function buildInstallSummary(input: {
 			statusLabel: created.importDlq.created
 				? STATUS_LABELS.created
 				: STATUS_LABELS.existing,
-			url: workerServiceUrl(accountId, workerName),
+			url: queueUrl(accountId, created.importDlq.id),
 			resourceId: created.importDlq.id,
 		},
 		{
