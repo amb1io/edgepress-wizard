@@ -2,6 +2,7 @@ import { CloudflareApiError, cloudflareRequest } from "./api-client";
 import {
 	findD1Database,
 	findKvNamespace,
+	findQueue,
 	findR2Bucket,
 	findWorkerScript,
 } from "./resource-lookup";
@@ -12,6 +13,8 @@ export type CreatedResources = {
 	d1: { name: string; id: string; created: boolean; existed: boolean };
 	kv: { name: string; id: string; created: boolean; existed: boolean };
 	r2: { name: string; created: boolean; existed: boolean };
+	importQueue: { name: string; id: string; created: boolean; existed: boolean };
+	importDlq: { name: string; id: string; created: boolean; existed: boolean };
 	worker: { name: string; tag?: string; created: boolean; existed: boolean };
 };
 
@@ -21,9 +24,20 @@ export async function provisionCloudflareResources(input: {
 	d1Name: string;
 	kvName: string;
 	r2Name: string;
+	importQueueName: string;
+	importDlqName: string;
 	workerName: string;
 }): Promise<CreatedResources> {
-	const { token, accountId, d1Name, kvName, r2Name, workerName } = input;
+	const {
+		token,
+		accountId,
+		d1Name,
+		kvName,
+		r2Name,
+		importQueueName,
+		importDlqName,
+		workerName,
+	} = input;
 
 	let d1 = await findD1Database(token, accountId, d1Name);
 	const d1Existed = Boolean(d1);
@@ -67,6 +81,34 @@ export async function provisionCloudflareResources(input: {
 		);
 	}
 
+	let importDlq = await findQueue(token, accountId, importDlqName);
+	const importDlqExisted = Boolean(importDlq);
+	if (!importDlq) {
+		importDlq = await cloudflareRequest<{ queue_id: string; queue_name: string }>(
+			token,
+			`/accounts/${accountId}/queues`,
+			{
+				method: "POST",
+				step: "create_import_dlq",
+				body: JSON.stringify({ queue_name: importDlqName }),
+			},
+		);
+	}
+
+	let importQueue = await findQueue(token, accountId, importQueueName);
+	const importQueueExisted = Boolean(importQueue);
+	if (!importQueue) {
+		importQueue = await cloudflareRequest<{ queue_id: string; queue_name: string }>(
+			token,
+			`/accounts/${accountId}/queues`,
+			{
+				method: "POST",
+				step: "create_import_queue",
+				body: JSON.stringify({ queue_name: importQueueName }),
+			},
+		);
+	}
+
 	const worker = await findWorkerScript(token, accountId, workerName);
 	const workerExisted = Boolean(worker);
 
@@ -87,6 +129,18 @@ export async function provisionCloudflareResources(input: {
 			name: r2Name,
 			created: !r2Existed,
 			existed: r2Existed,
+		},
+		importQueue: {
+			name: importQueueName,
+			id: importQueue.queue_id,
+			created: !importQueueExisted,
+			existed: importQueueExisted,
+		},
+		importDlq: {
+			name: importDlqName,
+			id: importDlq.queue_id,
+			created: !importDlqExisted,
+			existed: importDlqExisted,
 		},
 		worker: {
 			name: workerName,

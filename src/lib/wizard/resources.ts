@@ -16,11 +16,22 @@ export function buildR2BucketName(prefix: string): string {
 }
 
 export type WizardResourcePlan = {
-	type: "d1" | "r2" | "kv" | "worker";
+	type: "d1" | "r2" | "kv" | "queue" | "worker";
 	label: string;
 	name: string;
 	binding?: string;
 };
+
+export function buildImportQueueNames(prefix: string): {
+	importQueue: string;
+	importDlq: string;
+} {
+	const normalizedPrefix = prefix.toLowerCase();
+	return {
+		importQueue: `${normalizedPrefix}-egp-import-queue`,
+		importDlq: `${normalizedPrefix}-egp-import-dlq`,
+	};
+}
 
 export function buildResourcePlan(
 	prefix: string,
@@ -28,6 +39,7 @@ export function buildResourcePlan(
 ): WizardResourcePlan[] {
 	const normalizedPrefix = prefix.toLowerCase();
 	const workerName = deriveWorkerName(siteName);
+	const queues = buildImportQueueNames(normalizedPrefix);
 
 	return [
 		{
@@ -47,6 +59,17 @@ export function buildResourcePlan(
 			label: "KV Namespace",
 			name: `${normalizedPrefix}_egp_kv`,
 			binding: "CACHE",
+		},
+		{
+			type: "queue",
+			label: "Import Queue",
+			name: queues.importQueue,
+			binding: "IMPORT_QUEUE",
+		},
+		{
+			type: "queue",
+			label: "Import DLQ",
+			name: queues.importDlq,
 		},
 		{
 			type: "worker",

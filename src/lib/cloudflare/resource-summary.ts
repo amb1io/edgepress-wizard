@@ -10,7 +10,7 @@ import type { WorkerBuildSetupResult } from "./setup-worker-builds";
 import type { EvaluatedResource } from "./resource-lookup";
 
 export type ResourceSummaryItem = {
-	type: "d1" | "kv" | "r2" | "worker" | "builds";
+	type: "d1" | "kv" | "r2" | "queue" | "worker" | "builds";
 	label: string;
 	name: string;
 	binding?: string;
@@ -101,6 +101,29 @@ export function buildInstallSummary(input: {
 				: STATUS_LABELS.existing,
 			url: r2BucketUrl(accountId, created.r2.name),
 			resourceId: created.r2.name,
+		},
+		{
+			type: "queue",
+			label: "Import Queue",
+			name: created.importQueue.name,
+			binding: "IMPORT_QUEUE",
+			status: created.importQueue.created ? "created" : "existing",
+			statusLabel: created.importQueue.created
+				? STATUS_LABELS.created
+				: STATUS_LABELS.existing,
+			url: workerServiceUrl(accountId, workerName),
+			resourceId: created.importQueue.id,
+		},
+		{
+			type: "queue",
+			label: "Import DLQ",
+			name: created.importDlq.name,
+			status: created.importDlq.created ? "created" : "existing",
+			statusLabel: created.importDlq.created
+				? STATUS_LABELS.created
+				: STATUS_LABELS.existing,
+			url: workerServiceUrl(accountId, workerName),
+			resourceId: created.importDlq.id,
 		},
 		{
 			type: "worker",

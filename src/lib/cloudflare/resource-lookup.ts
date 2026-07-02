@@ -1,9 +1,10 @@
-import { cloudflareRequest } from "./api-client";
+import { CloudflareApiError, cloudflareRequest } from "./api-client";
 
 export type D1Database = { uuid: string; name: string };
 export type KvNamespace = { id: string; title: string };
 export type R2Bucket = { name: string; creation_date?: string };
 export type WorkerScript = { id: string; tag?: string };
+export type CloudflareQueue = { queue_id: string; queue_name: string };
 
 export async function findD1Database(
 	token: string,
@@ -57,8 +58,48 @@ export async function findWorkerScript(
 	return scripts.find((script) => script.id === scriptName);
 }
 
+export async function findQueue(
+	token: string,
+	accountId: string,
+	queueName: string,
+): Promise<CloudflareQueue | undefined> {
+	const queues = await cloudflareRequest<CloudflareQueue[]>(
+		token,
+		`/accounts/${accountId}/queues`,
+		{ step: "list_queues" },
+	);
+	return queues.find((queue) => queue.queue_name === queueName);
+}
+
+export async function assertQueuesAvailable(
+	token: string,
+	accountId: string,
+): Promise<void> {
+	try {
+		await cloudflareRequest<CloudflareQueue[]>(
+			token,
+			`/accounts/${accountId}/queues`,
+			{ step: "verify_queues_plan" },
+		);
+	} catch (error) {
+		if (error instanceof CloudflareApiError) {
+			const envelope = error.body as {
+				errors?: Array<{ code?: number; message?: string }>;
+			};
+			const code = envelope.errors?.[0]?.code;
+			if (code === 100129) {
+				throw new CloudflareApiError(
+					"Cloudflare Queues exigem o plano Workers Paid. Atualize sua conta antes de instalar.",
+					{ status: error.status, step: "verify_queues_plan", body: error.body },
+				);
+			}
+		}
+		throw error;
+	}
+}
+
 export type EvaluatedResource = {
-	type: "d1" | "kv" | "r2" | "worker";
+	type: "d1" | "kv" | "r2" | "queue" | "worker";
 	label: string;
 	name: string;
 	binding?: string;
@@ -72,12 +113,18 @@ export async function evaluateCloudflareResources(input: {
 	d1Name: string;
 	kvName: string;
 	r2Name: string;
+	importQueueName: string;
+	importDlqName: string;
 	workerName: string;
 }): Promise<EvaluatedResource[]> {
-	const [d1, kv, r2, worker] = await Promise.all([
+	await assertQueuesAvailable(input.token, input.accountId);
+
+	const [d1, kv, r2, importQueue, importDlq, worker] = await Promise.all([
 		findD1Database(input.token, input.accountId, input.d1Name),
 		findKvNamespace(input.token, input.accountId, input.kvName),
 		findR2Bucket(input.token, input.accountId, input.r2Name),
+		findQueue(input.token, input.accountId, input.importQueueName),
+		findQueue(input.token, input.accountId, input.importDlqName),
 		findWorkerScript(input.token, input.accountId, input.workerName),
 	]);
 
@@ -105,6 +152,21 @@ export async function evaluateCloudflareResources(input: {
 			binding: "MEDIA_BUCKET",
 			exists: Boolean(r2),
 			resourceId: r2?.name,
+		},
+		{
+			type: "queue",
+			label: "Import Queue",
+			name: input.importQueueName,
+			binding: "IMPORT_QUEUE",
+			exists: Boolean(importQueue),
+			resourceId: importQueue?.queue_id,
+		},
+		{
+			type: "queue",
+			label: "Import DLQ",
+			name: input.importDlqName,
+			exists: Boolean(importDlq),
+			resourceId: importDlq?.queue_id,
 		},
 		{
 			type: "worker",

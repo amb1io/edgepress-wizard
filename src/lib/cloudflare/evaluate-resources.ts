@@ -1,7 +1,7 @@
 import { getPrimaryAccountId } from "./api-client";
 import { evaluateCloudflareResources } from "./resource-lookup";
 import { enrichEvaluatedResources } from "./resource-summary";
-import { buildResourcePlan } from "../wizard/resources";
+import { buildResourcePlan, buildImportQueueNames } from "../wizard/resources";
 import type { WizardSetupConfig } from "../wizard/session";
 
 export async function evaluateEdgePressResources(input: {
@@ -16,6 +16,7 @@ export async function evaluateEdgePressResources(input: {
 	const kv = resourcePlan.find((item) => item.type === "kv");
 	const r2 = resourcePlan.find((item) => item.type === "r2");
 	const worker = resourcePlan.find((item) => item.type === "worker");
+	const queues = buildImportQueueNames(input.config.sitePrefix);
 
 	if (!d1 || !kv || !r2 || !worker) {
 		return {
@@ -32,6 +33,8 @@ export async function evaluateEdgePressResources(input: {
 		d1Name: d1.name,
 		kvName: kv.name,
 		r2Name: r2.name,
+		importQueueName: queues.importQueue,
+		importDlqName: queues.importDlq,
 		workerName: worker.name,
 	});
 

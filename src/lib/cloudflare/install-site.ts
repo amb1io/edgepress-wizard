@@ -24,7 +24,7 @@ import {
 	waitForWorkerBuild,
 } from "./poll-worker-build";
 import { buildWranglerConfigForSite } from "./wrangler-config";
-import { buildResourcePlan } from "../wizard/resources";
+import { buildResourcePlan, buildImportQueueNames } from "../wizard/resources";
 import type { WizardSetupConfig } from "../wizard/session";
 
 export type InstallSiteResult = {
@@ -38,6 +38,8 @@ export type InstallSiteResult = {
 		d1: { name: string; id: string; created: boolean };
 		kv: { name: string; id: string; created: boolean };
 		r2: { name: string; created: boolean };
+		importQueue: { name: string; id: string; created: boolean };
+		importDlq: { name: string; id: string; created: boolean };
 		worker: { name: string; tag?: string; created: boolean };
 	};
 	wrangler?: {
@@ -81,6 +83,7 @@ export async function installEdgePressSite(input: {
 	const kv = resourcePlan.find((item) => item.type === "kv");
 	const r2 = resourcePlan.find((item) => item.type === "r2");
 	const worker = resourcePlan.find((item) => item.type === "worker");
+	const queues = buildImportQueueNames(input.config.sitePrefix);
 
 	if (!d1 || !kv || !r2 || !worker) {
 		return {
@@ -105,6 +108,8 @@ export async function installEdgePressSite(input: {
 			d1Name: d1.name,
 			kvName: kv.name,
 			r2Name: r2.name,
+			importQueueName: queues.importQueue,
+			importDlqName: queues.importDlq,
 			workerName: worker.name,
 		});
 
@@ -154,6 +159,8 @@ export async function installEdgePressSite(input: {
 				d1: created.d1,
 				kv: created.kv,
 				r2: created.r2,
+				importQueue: created.importQueue,
+				importDlq: created.importDlq,
 			},
 			workersSubdomain,
 		});
@@ -315,6 +322,9 @@ export async function installEdgePressSite(input: {
 }
 
 function mapCloudflareErrorCode(error: CloudflareApiError): string {
+	if (error.step.includes("create_import_queue") || error.step.includes("create_import_dlq") || error.step.includes("verify_queues_plan")) {
+		return "install_queues_unavailable";
+	}
 	if (error.step.includes("repo_connection")) {
 		return "install_github_not_connected";
 	}
