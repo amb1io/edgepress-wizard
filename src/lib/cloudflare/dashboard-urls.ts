@@ -19,6 +19,10 @@ export function r2BucketUrl(accountId: string, bucketName: string): string {
 	);
 }
 
+export function queueUrl(accountId: string, queueId: string): string {
+	return accountPath(accountId, `/queues/${queueId}`);
+}
+
 export function workerServiceUrl(accountId: string, workerName: string): string {
 	return accountPath(
 		accountId,

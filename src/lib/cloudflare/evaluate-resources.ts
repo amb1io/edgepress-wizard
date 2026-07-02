@@ -1,8 +1,35 @@
 import { getPrimaryAccountId } from "./api-client";
-import { evaluateCloudflareResources } from "./resource-lookup";
+import {
+	evaluateCloudflareResources,
+	type EvaluatedResource,
+} from "./resource-lookup";
 import { enrichEvaluatedResources } from "./resource-summary";
-import { buildResourcePlan, buildImportQueueNames } from "../wizard/resources";
+import {
+	buildResourcePlan,
+	buildImportQueueNames,
+	type WizardResourcePlan,
+} from "../wizard/resources";
 import type { WizardSetupConfig } from "../wizard/session";
+
+function mergeEvaluatedWithResourcePlan(
+	plan: WizardResourcePlan[],
+	evaluated: EvaluatedResource[],
+): EvaluatedResource[] {
+	const evaluatedByName = new Map(evaluated.map((item) => [item.name, item]));
+
+	return plan.map((item) => {
+		const match = evaluatedByName.get(item.name);
+		if (match) return match;
+
+		return {
+			type: item.type,
+			label: item.label,
+			name: item.name,
+			binding: item.binding,
+			exists: false,
+		};
+	});
+}
 
 export async function evaluateEdgePressResources(input: {
 	token: string;
@@ -41,6 +68,9 @@ export async function evaluateEdgePressResources(input: {
 	return {
 		success: true as const,
 		accountId,
-		resources: enrichEvaluatedResources(accountId, evaluated),
+		resources: enrichEvaluatedResources(
+			accountId,
+			mergeEvaluatedWithResourcePlan(resourcePlan, evaluated),
+		),
 	};
 }
