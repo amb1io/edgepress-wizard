@@ -1,4 +1,4 @@
-import { getPrimaryAccountId } from "./api-client";
+import { CloudflareApiError, getPrimaryAccountId } from "./api-client";
 import {
 	evaluateCloudflareResources,
 	type EvaluatedResource,
@@ -53,24 +53,38 @@ export async function evaluateEdgePressResources(input: {
 		};
 	}
 
-	const accountId = await getPrimaryAccountId(input.token);
-	const evaluated = await evaluateCloudflareResources({
-		token: input.token,
-		accountId,
-		d1Name: d1.name,
-		kvName: kv.name,
-		r2Name: r2.name,
-		importQueueName: queues.importQueue,
-		importDlqName: queues.importDlq,
-		workerName: worker.name,
-	});
-
-	return {
-		success: true as const,
-		accountId,
-		resources: enrichEvaluatedResources(
+	try {
+		const accountId = await getPrimaryAccountId(input.token);
+		const evaluated = await evaluateCloudflareResources({
+			token: input.token,
 			accountId,
-			mergeEvaluatedWithResourcePlan(resourcePlan, evaluated),
-		),
-	};
+			d1Name: d1.name,
+			kvName: kv.name,
+			r2Name: r2.name,
+			importQueueName: queues.importQueue,
+			importDlqName: queues.importDlq,
+			workerName: worker.name,
+		});
+
+		return {
+			success: true as const,
+			accountId,
+			resources: enrichEvaluatedResources(
+				accountId,
+				mergeEvaluatedWithResourcePlan(resourcePlan, evaluated),
+			),
+		};
+	} catch (error) {
+		if (
+			error instanceof CloudflareApiError &&
+			error.step === "verify_queues_plan"
+		) {
+			return {
+				success: false as const,
+				errorCode: "install_queues_unavailable",
+				message: error.message,
+			};
+		}
+		throw error;
+	}
 }

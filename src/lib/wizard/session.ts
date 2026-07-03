@@ -46,6 +46,8 @@ export const WIZARD_ERROR_MESSAGES: Record<string, string> = {
 		"O Worker foi publicado, mas não foi possível concluir o setup do EdgePress (usuário admin e settings).",
 	install_setup_seed_failed:
 		"Setup concluído, mas falhou ao atualizar site_url no D1. Verifique permissão D1 Edit.",
+	install_queues_unavailable:
+		"Cloudflare Queues exigem o plano Workers Paid. Atualize sua conta e verifique a permissão Queues Write no token antes de instalar.",
 };
 
 export type WizardSetupConfig = {

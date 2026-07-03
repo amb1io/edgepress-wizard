@@ -16,11 +16,12 @@ The wizard walks you through three steps:
 
 On install, the wizard:
 
-1. Creates or reuses **D1**, **KV**, **R2**, and a **Worker** on your Cloudflare account
+1. Creates or reuses **D1**, **KV**, **R2**, **Cloudflare Queues** (import + DLQ), and a **Worker** on your Cloudflare account
 2. Uploads the Worker with bindings and enables `workers.dev`
 3. Sets `BETTER_AUTH_SECRET` and generates a per-site `wrangler.toml`
 4. Triggers a **GitHub Build** from `amb1io/edgepress@main` that:
    - Writes `wrangler.toml` from build env vars
+   - Creates import queues if missing (`wrangler queues create`)
    - Runs `wrangler d1 migrations apply` on the remote D1 database
    - Runs `wrangler d1 execute` with `drizzle/seed/seed-remote.sql` (EdgePress default seed)
    - Builds and deploys the Worker
@@ -37,6 +38,8 @@ Given site name **"Farra Media"** and prefix **`dem`**:
 | D1 | `dem_egp_d1` | `DB` |
 | KV | `dem_egp_kv` | `CACHE` |
 | R2 | `dem-egp-r2` | `MEDIA_BUCKET` |
+| Import Queue | `dem-egp-import-queue` | `IMPORT_QUEUE` |
+| Import DLQ | `dem-egp-import-dlq` | (dead letter for import consumer) |
 | Worker | `farra-media` (slug from site name) | — |
 
 The Worker name is derived from the site name (`deriveWorkerName`), not from the prefix.
@@ -44,13 +47,14 @@ The Worker name is derived from the site name (`deriveWorkerName`), not from the
 ## Requirements
 
 - **Node.js** ≥ 22.12
-- A **Cloudflare account** with Workers, D1, KV, and R2 enabled
+- A **Cloudflare account** with Workers Paid (required for **Cloudflare Queues**), D1, KV, and R2 enabled
 - A **Cloudflare API token** with at least:
   - Account Settings Read
   - D1 Edit
   - KV Storage Edit
   - Workers R2 Storage Edit
   - Workers Scripts Edit
+  - Queues Write
   - Workers Builds Configuration Edit (+ Read for build polling/logs)
   - Zone Read (if associating a custom domain in step 2)
 - A **Workers Builds API token** configured in the Cloudflare dashboard (Workers → Settings → Builds)
@@ -92,7 +96,7 @@ Remove Cloudflare resources created during a test install:
 ./scripts/teardown-test-resources.sh dem --worker farra-media --dry-run
 ```
 
-Deletes the Worker (slug + legacy `{prefix}_egp_worker`), KV, D1, and R2 (bucket emptied first). Does **not** remove build triggers or secrets.
+Deletes the Worker (slug + legacy `{prefix}_egp_worker`), import queues, KV, D1, and R2 (bucket emptied first). Does **not** remove build triggers or secrets.
 
 ## Project structure
 
