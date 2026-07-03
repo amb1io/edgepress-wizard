@@ -38,7 +38,9 @@ export const POST: APIRoute = async ({ request }) => {
 		});
 
 		if (!result.success) {
-			return jsonResponse(result, 400);
+			const status =
+				result.errorCode === "install_queues_unavailable" ? 403 : 400;
+			return jsonResponse(result, status);
 		}
 
 		return jsonResponse(result, 200);
