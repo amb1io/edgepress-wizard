@@ -1,5 +1,6 @@
 import { CloudflareApiError, cloudflareRequest } from "./api-client";
 import {
+	assertQueuesAvailable,
 	findD1Database,
 	findKvNamespace,
 	findQueue,
@@ -80,6 +81,8 @@ export async function provisionCloudflareResources(input: {
 			},
 		);
 	}
+
+	await assertQueuesAvailable(token, accountId);
 
 	let importDlq = await findQueue(token, accountId, importDlqName);
 	const importDlqExisted = Boolean(importDlq);

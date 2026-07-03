@@ -284,6 +284,28 @@ delete_r2() {
 	cf_request_allow_missing DELETE "/accounts/$ACCOUNT_ID/r2/buckets/$bucket"
 }
 
+find_queue_id() {
+	local queue_name="$1"
+	if [[ "$DRY_RUN" == true ]]; then
+		printf 'dry-run-queue-id'
+		return 0
+	fi
+	cf_request GET "/accounts/$ACCOUNT_ID/queues"
+	printf '%s' "$RESPONSE" | jq -r --arg name "$queue_name" '.result[] | select(.queue_name == $name) | .queue_id' | head -n 1
+}
+
+delete_queue() {
+	local queue_name="$1"
+	local id
+	id="$(find_queue_id "$queue_name")"
+	if [[ -z "$id" ]]; then
+		warn "Queue not found: $queue_name"
+		return 0
+	fi
+	log "Deleting queue: $queue_name ($id)"
+	cf_request_allow_missing DELETE "/accounts/$ACCOUNT_ID/queues/$id"
+}
+
 parse_args() {
 	if [[ $# -eq 0 ]]; then
 		usage
@@ -365,12 +387,15 @@ main() {
 	D1_NAME="${PREFIX}_egp_d1"
 	KV_NAME="${PREFIX}_egp_kv"
 	R2_NAME="${PREFIX}-egp-r2"
+	IMPORT_QUEUE_NAME="${PREFIX}-egp-import-queue"
+	IMPORT_DLQ_NAME="${PREFIX}-egp-import-dlq"
 
 	log "EdgePress wizard teardown"
 	log "  Prefix:   $PREFIX"
 	log "  D1:       $D1_NAME"
 	log "  KV:       $KV_NAME"
 	log "  R2:       $R2_NAME"
+	log "  Queues:   $IMPORT_QUEUE_NAME, $IMPORT_DLQ_NAME"
 	if [[ -n "$WORKER_NAME" ]]; then
 		log "  Worker:   $WORKER_NAME"
 	fi
@@ -394,6 +419,8 @@ main() {
 	delete_kv "$KV_NAME"
 	delete_d1 "$D1_NAME"
 	delete_r2 "$R2_NAME"
+	delete_queue "$IMPORT_QUEUE_NAME"
+	delete_queue "$IMPORT_DLQ_NAME"
 
 	log ""
 	log "Done. Build triggers and secrets were not removed automatically."

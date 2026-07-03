@@ -136,11 +136,22 @@ export const CLOUDFLARE_API_TOKEN_ENV_KEY = "CLOUDFLARE_API_TOKEN";
  * wrangler migrations apply, then execute committed drizzle/seed/seed-remote.sql.
  * Wizard-specific data (admin user, site name) is applied after deploy via POST /api/setup.
  */
-export function buildWranglerBuildCommand(d1DatabaseName: string): string {
+export function buildWranglerBuildCommand(input: {
+	d1DatabaseName: string;
+	importQueueName: string;
+	importDlqName: string;
+}): string {
 	const writeToml = `node -e "require('fs').writeFileSync('wrangler.toml',Buffer.from(process.env.${WRANGLER_TOML_ENV_KEY},'base64'))"`;
-	const db = JSON.stringify(d1DatabaseName);
+	const db = JSON.stringify(input.d1DatabaseName);
+	const importDlq = JSON.stringify(input.importDlqName);
+	const importQueue = JSON.stringify(input.importQueueName);
+	const setupQueues = [
+		`npx wrangler queues create ${importDlq} -c wrangler.toml 2>/dev/null || true`,
+		`npx wrangler queues create ${importQueue} -c wrangler.toml 2>/dev/null || true`,
+	].join(" && ");
 	return [
 		writeToml,
+		setupQueues,
 		`npx wrangler d1 migrations apply ${db} --remote -c wrangler.toml`,
 		`npx wrangler d1 execute ${db} --remote --file=./drizzle/seed/seed-remote.sql -c wrangler.toml`,
 		"npm run build",
@@ -194,7 +205,11 @@ export function buildWranglerConfigForSite(input: {
 		workerName,
 		auth,
 		wranglerToml,
-		buildCommand: buildWranglerBuildCommand(input.bindings.d1.name),
+		buildCommand: buildWranglerBuildCommand({
+			d1DatabaseName: input.bindings.d1.name,
+			importQueueName: input.bindings.importQueue.name,
+			importDlqName: input.bindings.importDlq.name,
+		}),
 		buildEnvironment: buildWranglerBuildEnvironment({
 			wranglerToml,
 			apiToken: input.apiToken,

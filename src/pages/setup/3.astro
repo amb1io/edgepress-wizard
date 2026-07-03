@@ -21,6 +21,10 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 		)
 	}
 
+	<div id="evaluate-error-panel" class="hidden mb-4">
+		<Notificacao type="error" message="" className="mb-0" />
+	</div>
+
 	<div id="install-error-panel" class="hidden mb-4 space-y-2">
 		<Notificacao type="error" message="" className="mb-0" />
 		<div class="rounded-box border border-error/30 bg-error/5 p-3 text-xs space-y-2">
@@ -163,6 +167,7 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 	const installErrorStep = document.getElementById("install-error-step");
 	const installErrorMessage = document.getElementById("install-error-message");
 	const installErrorBuildLogs = document.getElementById("install-error-build-logs");
+	const evaluateErrorPanel = document.getElementById("evaluate-error-panel");
 
 	let wizardConfig: WizardSetupConfig | null = null;
 
@@ -323,6 +328,7 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 			const result = await response.json();
 
 			if (result.success && Array.isArray(result.resources)) {
+				evaluateErrorPanel?.classList.add("hidden");
 				renderOverviewResources(
 					mergePlannedWithEvaluated(
 						planned,
@@ -332,10 +338,30 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 				return;
 			}
 
+			const errorCode =
+				typeof result.errorCode === "string" ? result.errorCode : undefined;
+			const message =
+				typeof result.message === "string" ? result.message : undefined;
+			showEvaluateError(errorCode, message);
+			renderPlannedResources(planned);
 			console.error("[EdgePress Wizard] Falha ao avaliar recursos", result);
 		} catch (error) {
 			console.error("[EdgePress Wizard] Erro ao avaliar recursos", error);
 		}
+	}
+
+	function showEvaluateError(errorCode?: string, message?: string) {
+		if (!evaluateErrorPanel) return;
+
+		const summary =
+			message ??
+			(errorCode && wizardErrorMessages[errorCode]
+				? wizardErrorMessages[errorCode]
+				: "Não foi possível verificar os recursos no Cloudflare.");
+
+		const alertMessage = evaluateErrorPanel.querySelector(".text-sm");
+		if (alertMessage) alertMessage.textContent = summary;
+		evaluateErrorPanel.classList.remove("hidden");
 	}
 
 	function showInstallError(payload: InstallErrorPayload) {
@@ -344,9 +370,11 @@ const installed = Astro.url.searchParams.get("installed") === "1";
 		const alertMessage = installErrorPanel?.querySelector(".text-sm");
 		const summary =
 			payload.message ??
-			(payload.errorCode
-				? `Falha na instalação (${payload.errorCode}).`
-				: "Falha na instalação.");
+			(payload.errorCode && wizardErrorMessages[payload.errorCode]
+				? wizardErrorMessages[payload.errorCode]
+				: payload.errorCode
+					? `Falha na instalação (${payload.errorCode}).`
+					: "Falha na instalação.");
 
 		if (alertMessage) alertMessage.textContent = summary;
 		if (installErrorCode) {
