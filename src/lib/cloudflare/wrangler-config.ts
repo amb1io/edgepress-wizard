@@ -28,6 +28,25 @@ const DEFAULT_RATE_LIMIT_VARS = {
 	RESEND_FROM: "contato@amb1.io",
 } as const;
 
+/**
+ * Optional vars that enable the paid Cloudflare Images CDN path.
+ * When absent, EdgePress falls back to Image Resizing on the Free plan.
+ * Add these manually via `wrangler secret put` or the Cloudflare dashboard:
+ *   CLOUDFLARE_IMAGES_ACCOUNT_HASH  — account hash shown in Images dashboard
+ *   CLOUDFLARE_IMAGES_BASE_URL      — override base URL (optional, derived from hash if absent)
+ *   CLOUDFLARE_IMAGES_ACCOUNT_ID    — account ID (required for upload to CF Images)
+ *   CLOUDFLARE_IMAGES_API_TOKEN     — API token with Images:Edit permission
+ */
+const CLOUDFLARE_IMAGES_COMMENT = `
+# --- Optional: Cloudflare Images (paid add-on) ---
+# Without these, EdgePress serves images from R2 + Image Resizing (Free plan).
+# Set via: wrangler secret put CLOUDFLARE_IMAGES_ACCOUNT_HASH
+# CLOUDFLARE_IMAGES_ACCOUNT_HASH = ""   # e.g. "abc123xyz"
+# CLOUDFLARE_IMAGES_BASE_URL     = ""   # derived from account hash when empty
+# CLOUDFLARE_IMAGES_ACCOUNT_ID   = ""   # Cloudflare account ID
+# CLOUDFLARE_IMAGES_API_TOKEN    = ""   # Images:Edit API token (use wrangler secret)
+`;
+
 export function resolveBetterAuthVars(input: {
 	config: WizardSetupConfig;
 	workerName: string;
@@ -82,6 +101,7 @@ RATE_LIMIT_REGISTER_WINDOW_MIN = ${tomlString(DEFAULT_RATE_LIMIT_VARS.RATE_LIMIT
 RATE_LIMIT_UPLOAD_MAX = ${tomlString(DEFAULT_RATE_LIMIT_VARS.RATE_LIMIT_UPLOAD_MAX)}
 RATE_LIMIT_UPLOAD_WINDOW_MIN = ${tomlString(DEFAULT_RATE_LIMIT_VARS.RATE_LIMIT_UPLOAD_WINDOW_MIN)}
 RESEND_FROM = ${tomlString(DEFAULT_RATE_LIMIT_VARS.RESEND_FROM)}
+${CLOUDFLARE_IMAGES_COMMENT}
 
 [[d1_databases]]
 binding = "DB"
