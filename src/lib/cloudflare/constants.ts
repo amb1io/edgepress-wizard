@@ -5,6 +5,7 @@ export const EDGPRESS_GITHUB = {
 	repo: "edgepress",
 	branch: "main",
 	buildCommand: "npm run build",
+	/** Base deploy step; wizard chains warm-kv:remote via buildWranglerDeployCommand(). */
 	deployCommand: "npx wrangler deploy",
 } as const;
 

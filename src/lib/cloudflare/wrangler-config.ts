@@ -1,4 +1,3 @@
-import { EDGPRESS_GITHUB } from "./constants";
 import { deriveWorkerName } from "../wizard/site-slug";
 import type { WizardSetupConfig } from "../wizard/session";
 
@@ -195,7 +194,12 @@ export function buildWranglerBuildEnvironment(input: {
 }
 
 export function buildWranglerDeployCommand(): string {
-	return EDGPRESS_GITHUB.deployCommand;
+	const writeToml = `node -e "require('fs').writeFileSync('wrangler.toml',Buffer.from(process.env.${WRANGLER_TOML_ENV_KEY},'base64'))"`;
+	return [
+		writeToml,
+		"npx wrangler deploy -c wrangler.toml",
+		"npm run warm-kv:remote",
+	].join(" && ");
 }
 
 export function buildWranglerConfigForSite(input: {
