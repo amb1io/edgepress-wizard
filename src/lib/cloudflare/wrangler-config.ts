@@ -151,8 +151,7 @@ export const WRANGLER_TOML_ENV_KEY = "WIZARD_WRANGLER_TOML_B64";
 export const CLOUDFLARE_API_TOKEN_ENV_KEY = "CLOUDFLARE_API_TOKEN";
 
 /**
- * Same remote DB flow as EdgePress `db:migrate:remote` + `db:seed:remote`:
- * wrangler migrations apply, then execute committed drizzle/seed/seed-remote.sql.
+ * Remote D1 setup for GitHub Builds: wrangler migrations apply, then seed-remote.sql.
  * Wizard-specific data (admin user, site name) is applied after deploy via POST /api/setup.
  */
 export function buildWranglerBuildCommand(input: {
@@ -198,7 +197,7 @@ export function buildWranglerDeployCommand(): string {
 	return [
 		writeToml,
 		"npx wrangler deploy -c wrangler.toml",
-		"npm run warm-kv:remote",
+		"npx tsx scripts/warm-kv.ts --remote",
 	].join(" && ");
 }
 
